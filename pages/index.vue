@@ -48,7 +48,7 @@
               </template>
               <div class="welcome-content">
                 <p>
-                  这是一个基于Cloudflare Workers和D1数据库的SQL到API转换平台。
+                  这是一个基于Node.js和SQLite数据库的SQL到API转换平台。
                 </p>
                 <p>您可以通过简单地编写SQL查询，快速创建REST API端点。</p>
 

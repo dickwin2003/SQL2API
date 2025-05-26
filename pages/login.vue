@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-page-header">
       <h1>SQL to API 管理平台</h1>
-      <p>基于Cloudflare Workers和D1数据库的SQL转API工具</p>
+      <p>基于Node.js和SQLite数据库的SQL转API工具</p>
     </div>
 
     <div class="login-container">
@@ -27,7 +27,7 @@
                 <el-icon><el-icon-lightning /></el-icon>
                 <div class="feature-text">
                   <h3>高性能</h3>
-                  <p>基于Cloudflare全球网络，快速响应请求</p>
+                  <p>基于SQLite内存数据库，快速响应请求</p>
                 </div>
               </div>
               <div class="feature-item">
@@ -79,8 +79,7 @@
                 />
               </el-form-item>
 
-              <!-- Cloudflare Turnstile 组件将在此处添加 -->
-              <div id="turnstile-container" class="turnstile-container"></div>
+              <!-- 人机验证已移除 -->
 
               <el-form-item>
                 <el-button
@@ -132,8 +131,7 @@ const loginFormRef = ref();
 // 登录表单数据
 const loginForm = reactive({
   username: "",
-  password: "",
-  turnstileToken: "",
+  password: ""
 });
 
 // 表单验证规则
@@ -158,11 +156,7 @@ const handleLogin = async () => {
   await loginFormRef.value.validate(async (valid: boolean) => {
     if (!valid) return false;
 
-    // 检查是否完成了Turnstile验证
-    if (!loginForm.turnstileToken) {
-      ElMessage.warning("请完成人机验证");
-      return;
-    }
+    // 人机验证已移除
 
     try {
       loading.value = true;
@@ -213,39 +207,10 @@ const handleLogin = async () => {
       ElMessage.error("登录过程中发生错误");
     } finally {
       loading.value = false;
-      // 重置Turnstile验证（如果需要重新登录）
-      if (window.turnstile) {
-        window.turnstile.reset();
-      }
+      // 人机验证重置逻辑已移除
     }
   });
 };
-
-// 加载并初始化Cloudflare Turnstile
-onMounted(() => {
-  // 获取Turnstile站点密钥
-  const config = useRuntimeConfig();
-  const turnstileSiteKey =
-    config.public.turnstileSiteKey || "1x00000000000000000000AA";
-
-  // 添加Turnstile脚本
-  const turnstileScript = document.createElement("script");
-  turnstileScript.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-  turnstileScript.async = true;
-  turnstileScript.defer = true;
-  document.head.appendChild(turnstileScript);
-
-  // 等待脚本加载完成后渲染Turnstile
-  turnstileScript.onload = () => {
-    window.turnstile.render("#turnstile-container", {
-      sitekey: turnstileSiteKey,
-      callback: function (token: string) {
-        // 当用户成功完成验证时，保存令牌
-        loginForm.turnstileToken = token;
-      },
-    });
-  };
-});
 
 // 扩展Window接口以包含turnstile
 declare global {

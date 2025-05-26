@@ -5,27 +5,23 @@ import {
   readBody,
   createError,
 } from "h3";
-import { getClientIP, getCloudflareMeta } from "~/server/utils/cloudflare";
+import { getClientIP, getRequestMeta } from "~/server/utils/request";
+import db from "~/server/utils/db";
 
 /**
  * 动态路由处理器
  * 根据请求路径查找对应的SQL查询并执行
  */
 export default defineEventHandler(async (event) => {
-  const env = event.context.cloudflare.env;
   const params = getRouterParams(event);
   const path = "/api/" + (params._ || "");
   const method = event.method;
 
   // 查询数据库以获取API路由定义
-  const routeResult = await env.DB.prepare(
-    `
-    SELECT * FROM api_routes 
-    WHERE path = ? AND method = ?
-  `
-  )
-    .bind(path, method)
-    .first();
+  const routeResult = await db.get(
+    `SELECT * FROM api_routes WHERE path = ? AND method = ?`,
+    [path, method]
+  );
 
   console.log(path);
   console.log(routeResult);
@@ -43,30 +39,25 @@ export default defineEventHandler(async (event) => {
     // 记录日志
     try {
       const ipAddress = getClientIP(event);
-      const cfMeta = getCloudflareMeta(event);
+      const requestMeta = getRequestMeta(event);
 
       // 记录访问非公开API的尝试
-      await env.DB.prepare(
-        `
-        INSERT INTO api_logs 
-          (route_id, ip_address, request_data, response_status, execution_time) 
-        VALUES (?, ?, ?, ?, ?)
-      `
-      )
-        .bind(
+      await db.run(
+        `INSERT INTO api_logs (route_id, ip_address, request_data, response_status, execution_time) VALUES (?, ?, ?, ?, ?)`,
+        [
           routeResult.id,
           ipAddress,
           JSON.stringify({
             _requestDetails: {
-              ...cfMeta,
+              ...requestMeta,
               requestTime: new Date().toISOString(),
             },
             _message: "尝试访问非公开API",
           }),
           403,
           0
-        )
-        .run();
+        ]
+      );
     } catch (logError) {
       console.error("记录访问非公开API日志失败:", logError);
     }
@@ -151,12 +142,10 @@ export default defineEventHandler(async (event) => {
     console.log("sqlParams：", sqlParams);
     if (sqlParams.length > 0) {
       // 有参数的查询
-      result = await env.DB.prepare(sqlQuery)
-        .bind(...sqlParams)
-        .all();
+      result = await db.all(sqlQuery, sqlParams);
     } else {
       // 无参数的查询
-      result = await env.DB.prepare(sqlQuery).all();
+      result = await db.all(sqlQuery);
     }
 
     console.log("执行SQL：");
@@ -169,33 +158,28 @@ export default defineEventHandler(async (event) => {
     try {
       // 获取IP地址和Cloudflare元数据
       const ipAddress = getClientIP(event);
-      const cfMeta = getCloudflareMeta(event);
+      const requestMeta = getRequestMeta(event);
 
       // 将额外的请求信息添加到日志中
       const requestInfo = {
         ...requestData,
         _requestDetails: {
-          ...cfMeta,
+          ...requestMeta,
           requestTime: new Date().toISOString(),
         },
       };
 
-      // 异步记录日志，不等待其完成
-      await env.DB.prepare(
-        `
-        INSERT INTO api_logs 
-          (route_id, ip_address, request_data, response_status, execution_time) 
-        VALUES (?, ?, ?, ?, ?)
-      `
-      )
-        .bind(
+      // 异步记录日志
+      await db.run(
+        `INSERT INTO api_logs (route_id, ip_address, request_data, response_status, execution_time) VALUES (?, ?, ?, ?, ?)`,
+        [
           routeResult.id,
           ipAddress,
           JSON.stringify(requestInfo),
           200,
           executionTime
-        )
-        .run();
+        ]
+      );
     } catch (logError) {
       // 记录日志失败时，仅打印错误信息，不影响主流程
       console.error("API日志记录失败:", logError);
@@ -204,9 +188,9 @@ export default defineEventHandler(async (event) => {
     // 返回查询结果
     return {
       success: true,
-      data: result.results,
+      data: result, // 直接使用result，因为db.all已经返回了行数组
       meta: {
-        total: result.results.length,
+        total: result.length,
         executionTime: `${executionTime}ms`,
       },
     };
@@ -214,16 +198,16 @@ export default defineEventHandler(async (event) => {
     // 记录错误日志
     const executionTime = Date.now() - startTime;
 
-    // 使用优化后的方式获取IP地址和Cloudflare元数据
+    // 获取IP地址和请求元数据
     const ipAddress = getClientIP(event);
-    const cfMeta = getCloudflareMeta(event);
+    const requestMeta = getRequestMeta(event);
     const errorStatus = error.statusCode || 500;
 
     // 将额外的请求信息和错误信息添加到日志中
     const requestInfo = {
       ...requestData,
       _requestDetails: {
-        ...cfMeta,
+        ...requestMeta,
         requestTime: new Date().toISOString(),
       },
       _error: {
@@ -232,22 +216,17 @@ export default defineEventHandler(async (event) => {
       },
     };
 
-    // 异步记录日志，不等待其完成
-    env.DB.prepare(
-      `
-      INSERT INTO api_logs 
-        (route_id, ip_address, request_data, response_status, execution_time) 
-      VALUES (?, ?, ?, ?, ?)
-    `
-    )
-      .bind(
+    // 异步记录日志
+    await db.run(
+      `INSERT INTO api_logs (route_id, ip_address, request_data, response_status, execution_time) VALUES (?, ?, ?, ?, ?)`,
+      [
         routeResult.id,
         ipAddress,
         JSON.stringify(requestInfo),
         errorStatus,
         executionTime
-      )
-      .run();
+      ]
+    );
 
     // 抛出错误
     if (error.statusCode) {

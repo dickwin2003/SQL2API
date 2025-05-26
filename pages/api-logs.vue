@@ -396,7 +396,7 @@ onMounted(async () => {
 // 获取所有API路由
 const fetchApiRoutes = async () => {
   try {
-    const response = await fetch("/api/admin/logs/routes");
+    const response = await fetch("/api/admin/logs-routes");
 
     if (!response.ok) {
       const error = (await response.json()) as { statusMessage?: string };

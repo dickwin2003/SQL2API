@@ -1,6 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  compatibilityDate: "2025-05-15",
   devtools: { enabled: true },
 
   // 运行时配置，用于访问环境变量
@@ -17,15 +16,8 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: "cloudflare_module",
-
-    cloudflare: {
-      deployConfig: true,
-      nodeCompat: true,
-    },
+    preset: "node",
   },
-
-  modules: ["nitro-cloudflare-dev"],
 
   // 设置vite配置
   vite: {
@@ -37,7 +29,7 @@ export default defineNuxtConfig({
   // 添加CSP头以允许CDN加载
   app: {
     head: {
-      title: "SQL to API - Cloudflare Workers",
+      title: "SQL to API - SQLite",
       meta: [
         {
           "http-equiv": "Content-Security-Policy",

@@ -1,4 +1,5 @@
 import { defineEventHandler, createError } from "h3";
+import db from "~/server/utils/db";
 
 /**
  * 获取所有表
@@ -8,12 +9,9 @@ export default defineEventHandler(async (event) => {
   // TODO: 实现管理员认证
 
   try {
-    const env = event.context.cloudflare.env;
-
     // 查询所有表
-    const tablesResult = await env.DB.prepare(
-      `
-      SELECT 
+    const tables = await db.all(
+      `SELECT 
         t.id, 
         t.name, 
         t.description, 
@@ -23,32 +21,22 @@ export default defineEventHandler(async (event) => {
       FROM db_tables t
       LEFT JOIN db_fields f ON t.id = f.table_id
       GROUP BY t.id
-      ORDER BY t.name
-    `
-    ).all();
-
-    if (!tablesResult.success) {
-      throw new Error(tablesResult.error || "获取表列表失败");
-    }
+      ORDER BY t.name`
+    );
 
     // 获取每个表的API路由数量
-    for (const table of tablesResult.results) {
-      const routeCount = await env.DB.prepare(
-        `
-        SELECT COUNT(*) as count
-        FROM api_routes
-        WHERE source_table_id = ?
-      `
-      )
-        .bind(table.id)
-        .first<{ count: number }>();
+    for (const table of tables) {
+      const routeCount = await db.get(
+        `SELECT COUNT(*) as count FROM api_routes WHERE source_table_id = ?`,
+        [table.id]
+      );
 
       table.api_route_count = routeCount?.count || 0;
     }
 
     return {
       success: true,
-      tables: tablesResult.results,
+      tables: tables,
     };
   } catch (error: any) {
     if (error.statusCode) {

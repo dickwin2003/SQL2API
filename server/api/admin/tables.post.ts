@@ -1,5 +1,6 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError, readBody } from "h3";
 import { CrudGenerator, TableSchema } from "~/server/utils/crud-generator";
+import db from "~/server/utils/db";
 
 /**
  * 创建新表并生成CRUD API
@@ -41,28 +42,22 @@ export default defineEventHandler(async (event) => {
     }
 
     // 创建表
-    const env = event.context.cloudflare.env;
     try {
       console.log(createTableSQL);
 
-      // 执行创建表的SQL - 使用any类型绕过类型检查
-      await env.DB.prepare(createTableSQL.trim()).run();
+      // 执行创建表的SQL
+      await db.run(createTableSQL.trim());
 
       // 保存表定义到db_tables表
-      const tableResult = await env.DB.prepare(
-        `
-        INSERT INTO db_tables (name, description, schema, sql_create) 
-        VALUES (?, ?, ?, ?)
-        RETURNING id
-      `
-      )
-        .bind(
+      const tableResult = await db.get(
+        `INSERT INTO db_tables (name, description, schema, sql_create) VALUES (?, ?, ?, ?) RETURNING id`,
+        [
           body.name,
           body.description || "",
           JSON.stringify(body),
           createTableSQL
-        )
-        .first<{ id: number }>();
+        ]
+      );
 
       if (!tableResult || !tableResult.id) {
         throw new Error("保存表定义失败");
@@ -72,17 +67,13 @@ export default defineEventHandler(async (event) => {
 
       // 保存字段定义到db_fields表
       for (const field of body.fields) {
-        await env.DB.prepare(
-          `
-          INSERT INTO db_fields (
+        await db.run(
+          `INSERT INTO db_fields (
             table_id, name, type, length, precision, scale, 
             nullable, default_value, primary_key, unique_field, 
             auto_increment, description, order_index
-          ) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `
-        )
-          .bind(
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
             tableId,
             field.name,
             field.type,
@@ -96,13 +87,13 @@ export default defineEventHandler(async (event) => {
             field.auto_increment ? 1 : 0,
             field.description || "",
             field.order_index
-          )
-          .run();
+          ]
+        );
       }
 
       // 创建CRUD API路由
       const routeIds = await CrudGenerator.createCrudApiRoutes(
-        env.DB,
+        db,
         tableId,
         body
       );

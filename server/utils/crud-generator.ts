@@ -1,29 +1,7 @@
-// 修改导入方式，D1Database是一个通用类型，但我们可以用any代替
-// import { D1Database } from '@cloudflare/workers-types';
-
 /**
- * D1Database类型定义（简化版）
+ * 数据库类型定义
  */
-interface D1Result<T = unknown> {
-  results: T[];
-  success: boolean;
-  error?: string;
-  meta?: Record<string, any>;
-}
-
-interface D1PreparedStatement {
-  bind(...values: any[]): D1PreparedStatement;
-  first<T = Record<string, any>>(column?: string): Promise<T>;
-  run<T = Record<string, any>>(): Promise<D1Result<T>>;
-  all<T = Record<string, any>>(): Promise<D1Result<T>>;
-}
-
-interface D1Database {
-  prepare(query: string): D1PreparedStatement;
-  dump(): Promise<ArrayBuffer>;
-  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
-  exec<T = unknown>(query: string): Promise<D1Result<T>>;
-}
+type Database = any;
 
 // 表字段类型接口
 export interface TableField {
@@ -281,18 +259,19 @@ RETURNING *;`;
 
     return `SELECT * FROM ${schema.name}
 WHERE ${searchConditions}
-ORDER BY id DESC
-LIMIT :limit OFFSET :offset;`;
+ORDER BY id DESC LIMIT :limit OFFSET :offset;`;
   }
 
   /**
    * 创建CRUD API路由
    */
   static async createCrudApiRoutes(
-    db: D1Database,
+    db: Database,
     tableId: number,
     schema: TableSchema
   ): Promise<number[]> {
+    const routeIds: number[] = [];
+
     // 生成API路由
     const routes = [
       // 获取所有记录
@@ -411,37 +390,34 @@ LIMIT :limit OFFSET :offset;`;
       },
     ];
 
-    // 存储API路由ID
-    const routeIds: number[] = [];
-
     // 插入API路由
     for (const route of routes) {
-      const result = await db
-        .prepare(
-          `
-        INSERT INTO api_routes 
-          (name, description, path, method, sql_query, params, is_public, require_auth, source_table_id, crud_operation) 
-        VALUES 
-          (:name, :description, :path, :method, :sql_query, :params, :is_public, :require_auth, :source_table_id, :crud_operation)
-        RETURNING id
-      `
-        )
-        .bind(
-          route.name,
-          route.description,
-          route.path,
-          route.method,
-          route.sql_query,
-          route.params,
-          route.is_public ? 1 : 0,
-          route.require_auth ? 1 : 0,
-          route.source_table_id,
-          route.crud_operation
-        )
-        .first();
+      try {
+        const result = await db.get(
+          `INSERT INTO api_routes 
+            (name, description, path, method, sql_query, params, is_public, require_auth, source_table_id, crud_operation) 
+          VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id`,
+          [
+            route.name,
+            route.description,
+            route.path,
+            route.method,
+            route.sql_query,
+            route.params,
+            route.is_public ? 1 : 0,
+            route.require_auth ? 1 : 0,
+            route.source_table_id,
+            route.crud_operation
+          ]
+        );
 
-      if (result && result.id) {
-        routeIds.push(result.id);
+        if (result && result.id) {
+          routeIds.push(result.id);
+        }
+      } catch (error) {
+        console.error(`Error creating route ${route.name}:`, error);
       }
     }
 

@@ -1,4 +1,5 @@
 import { defineEventHandler, readBody, createError } from "h3";
+import db from "../../utils/db";
 
 /**
  * 创建新API路由
@@ -54,42 +55,43 @@ export default defineEventHandler(async (event) => {
     }
 
     // 保存到数据库
-    const env = event.context.cloudflare.env;
-    const { success, error, results } = await env.DB.prepare(
-      `
-      INSERT INTO api_routes 
-        (name, description, path, method, sql_query, params, is_public, require_auth) 
-      VALUES 
-        (?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `
-    )
-      .bind(
-        body.name,
-        body.description || "",
-        body.path,
-        body.method,
-        body.sqlQuery,
-        JSON.stringify(body.params || {}),
-        body.isPublic === true ? 1 : 0,
-        body.requireAuth === false ? 0 : 1
-      )
-      .all();
+    try {
+      const result = await db.run(
+        `
+        INSERT INTO api_routes 
+          (name, description, path, method, sql_query, params, is_public, require_auth) 
+        VALUES 
+          (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          body.name,
+          body.description || "",
+          body.path,
+          body.method,
+          body.sqlQuery,
+          JSON.stringify(body.params || {}),
+          body.isPublic === true ? 1 : 0,
+          body.requireAuth === false ? 0 : 1
+        ]
+      );
 
-    if (!success) {
+      // 获取创建的路由ID
+      const newRouteId = result.lastID;
+      
+      return {
+        success: true,
+        message: "API路由创建成功",
+        id: newRouteId,
+        path: body.path,
+        method: body.method,
+      };
+    } catch (dbError) {
+      // 处理数据库错误
       throw createError({
         statusCode: 500,
-        statusMessage: `数据库错误: ${error || "未知错误"}`,
+        statusMessage: `数据库错误: ${dbError.message || "未知错误"}`,
       });
     }
-
-    return {
-      success: true,
-      message: "API路由创建成功",
-      id: results[0].id,
-      path: body.path,
-      method: body.method,
-    };
   } catch (error) {
     if (error.statusCode) {
       throw error;

@@ -17,6 +17,10 @@ export default defineNuxtConfig({
 
   nitro: {
     preset: "node",
+    compatibilityDate: '2025-05-27',
+    externals: {
+      inline: ['mysql2', 'pg', 'better-sqlite3', 'tedious', 'tarn', 'debug', 'bl', 'iconv-lite', 'sprintf-js']
+    }
   },
 
   // 设置vite配置

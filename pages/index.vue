@@ -2,44 +2,7 @@
   <div class="app-container">
     <div class="main-content">
       <el-container>
-        <el-aside width="200px">
-          <!-- <div class="menu-header">
-            <h3>管理系统</h3>
-          </div> -->
-          <el-menu default-active="/" class="el-menu-vertical" router>
-            <el-menu-item index="/">
-              <el-icon><el-icon-house /></el-icon>
-              <span>首页</span>
-            </el-menu-item>
-            <el-menu-item index="/create-api">
-              <el-icon><el-icon-plus /></el-icon>
-              <span>创建API</span>
-            </el-menu-item>
-            <el-menu-item index="/api-list">
-              <el-icon><el-icon-menu /></el-icon>
-              <span>API列表</span>
-            </el-menu-item>
-            <el-menu-item index="/api-logs">
-              <el-icon><el-icon-data-analysis /></el-icon>
-              <span>API日志</span>
-            </el-menu-item>
-            <el-menu-item index="/api-tester">
-              <el-icon><el-icon-tickets /></el-icon>
-              <span>API测试</span>
-            </el-menu-item>
-            <el-menu-item index="/docs">
-              <el-icon><el-icon-document /></el-icon>
-              <span>使用文档</span>
-            </el-menu-item>
-            <el-divider />
-            <el-menu-item @click="handleLogout">
-              <el-icon><el-icon-switch-button /></el-icon>
-              <span>退出登录</span>
-            </el-menu-item>
-          </el-menu>
-        </el-aside>
-        <el-container>
-          <el-main>
+        <el-main>
             <el-card>
               <template #header>
                 <div class="card-header">
@@ -90,7 +53,6 @@
               </div>
             </el-card>
           </el-main>
-        </el-container>
       </el-container>
     </div>
     <AppFooter />
@@ -175,25 +137,7 @@ const handleLogout = async () => {
   width: 100%;
 }
 
-.el-aside {
-  background-color: #f5f7fa;
-  color: #333;
-  border-right: 1px solid #dcdfe6;
-}
 
-.menu-header {
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #303133;
-  border-bottom: 1px solid #dcdfe6;
-}
-
-.el-menu-vertical {
-  height: calc(100% - 60px);
-  border-right: none;
-}
 
 .el-card {
   margin-bottom: 20px;

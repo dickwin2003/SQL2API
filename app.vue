@@ -1,7 +1,13 @@
 <template>
   <div class="app-root">
     <AppHeader v-if="!isLoginPage" />
-    <NuxtPage />
+    <div class="main-container" v-if="!isLoginPage">
+      <AppSidebar class="sidebar" />
+      <div class="content-area">
+        <NuxtPage />
+      </div>
+    </div>
+    <NuxtPage v-else />
     <GithubCorner />
   </div>
 </template>
@@ -11,6 +17,7 @@
 import "element-plus/dist/index.css";
 import GithubCorner from "~/components/GithubCorner.vue";
 import AppHeader from "~/components/AppHeader.vue";
+import AppSidebar from "~/components/AppSidebar.vue";
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 
@@ -29,5 +36,23 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.main-container {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - 60px); /* Subtract header height */
+}
+
+.sidebar {
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background-color: #f5f7fa;
 }
 </style>

@@ -67,8 +67,19 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
     if (!pool) {
       console.log('创建新的MySQL连接池:', poolKey);
       
+      // 解析connection_string中的额外配置
+      let extraConfig = {};
+      if (dbConn.connection_string) {
+        try {
+          extraConfig = JSON.parse(dbConn.connection_string);
+          console.log('应用额外的连接配置:', extraConfig);
+        } catch (e) {
+          console.warn('解析connection_string失败:', e);
+        }
+      }
+
       // 创建新的连接池
-      pool = mysql.createPool({
+      const poolConfig: any = {
         host: dbConn.host,
         port: dbConn.port,
         user: dbConn.username,
@@ -82,13 +93,29 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
         // 增加连接超时时间
         connectTimeout: 10000,
         // 增加重试选项
-        maxRetries: 3,
-        // 尝试解决“Access denied”问与密码相关的问题
-        ssl: {
-          // 如果服务器支持SSL，可以尝试启用
-          rejectUnauthorized: false
+        maxRetries: 3
+      };
+
+      // 处理SSL配置
+      if (extraConfig.hasOwnProperty('ssl')) {
+        if (extraConfig.ssl === false) {
+          // 如果明确设置为false，则禁用SSL
+          console.log('禁用SSL连接');
+          // mysql2不需要显式禁用SSL，只需不设置ssl属性即可
+        } else {
+          // 否则使用默认的SSL配置
+          poolConfig.ssl = {
+            rejectUnauthorized: false
+          };
         }
-      });
+      } else {
+        // 默认使用SSL，但不验证证书
+        poolConfig.ssl = {
+          rejectUnauthorized: false
+        };
+      }
+
+      pool = mysql.createPool(poolConfig);
       
       // 将连接池添加到缓存
       mysqlPools.set(poolKey, pool);

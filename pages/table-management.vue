@@ -380,7 +380,7 @@ async function fetchConnections() {
     const data = await response.json();
     
     if (data.success) {
-      connections.value = data.connections.filter(conn => conn.is_active);
+      connections.value = data.connections; // 显示所有连接，不再过滤is_active
     } else {
       ElMessage.error(data.message || '获取数据库连接列表失败');
     }
@@ -707,7 +707,15 @@ function getDbTypeTagType(dbType) {
 }
 
 // 页面加载时获取数据
-onMounted(() => {
+onMounted(async () => {
+  // 先同步数据库连接，确保db-config.ts和数据库中的连接同步
+  try {
+    await fetch('/api/admin/sync-db-connections');
+  } catch (error) {
+    console.error('同步数据库连接失败:', error);
+  }
+  
+  // 然后获取连接列表
   fetchConnections();
 });
 </script>

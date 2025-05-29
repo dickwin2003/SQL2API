@@ -1,6 +1,6 @@
 /**
  * 数据库连接配置
- * 这个文件用于从.env文件中读取数据库连接信息
+ * 这个文件用于存储数据库连接信息
  */
 
 // 数据库连接类型
@@ -16,44 +16,35 @@ export interface DbConnection {
   connection_string?: string;
 }
 
-// 从环境变量中读取数据库连接信息
+// 从数据库中读取的连接1
 const db1Connection: DbConnection = {
-  id: 1,
-  name: process.env.DB1_NAME || '127_docker',
-  host: process.env.DB1_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB1_PORT || '3306'),
-  username: process.env.DB1_USER || 'root',
-  password: process.env.DB1_PASSWORD || 'root',
-  database_name: process.env.DB1_DATABASE || 'sqlrest',
-  db_type: process.env.DB1_TYPE || 'mysql'
-};
-
-const db2Connection: DbConnection = {
-  id: 2,
-  name: process.env.DB2_NAME || 'stock',
-  host: process.env.DB2_HOST || '139.196.78.195',
-  port: parseInt(process.env.DB2_PORT || '3306'),
-  username: process.env.DB2_USER || 'ppg',
-  password: process.env.DB2_PASSWORD || 'dickwin2003@gmail.com',
-  database_name: process.env.DB2_DATABASE || 'stock_pick',
-  db_type: process.env.DB2_TYPE || 'mysql'
-};
-
-const db3Connection: DbConnection = {
-  id: 3,
-  name: process.env.DB3_NAME || 'test110',
-  host: process.env.DB3_HOST || '119.91.39.7',
-  port: parseInt(process.env.DB3_PORT || '3305'),
-  username: process.env.DB3_USER || 'root',
-  password: process.env.DB3_PASSWORD || 'root',
-  database_name: process.env.DB3_DATABASE || 'dataops45',
-  db_type: process.env.DB3_TYPE || 'mysql'
-};
-
-// Added from database: prd_local
-const db4Connection: DbConnection = {
   id: 4,
-  name: 'prd_local',
+  name: 'mariadb10',
+  host: '192.168.0.200',
+  port: 3306,
+  username: 'root',
+  password: 'root',
+  database_name: 'dborder',
+  db_type: 'mysql',
+  connection_string: '{"ssl":false}'
+};
+
+// 从数据库中读取的连接2
+const db2Connection: DbConnection = {
+  id: 3,
+  name: 'pg_local',
+  host: '127.0.0.1',
+  port: 5432,
+  username: 'postgres',
+  password: 'postgres',
+  database_name: 'strapi',
+  db_type: 'postgresql'
+};
+
+// 从数据库中读取的连接3
+const db3Connection: DbConnection = {
+  id: 2,
+  name: 'prd_stock',
   host: '127.0.0.1',
   port: 3306,
   username: 'root',
@@ -62,27 +53,15 @@ const db4Connection: DbConnection = {
   db_type: 'mysql'
 };
 
-// Added from database: fff
-const db5Connection: DbConnection = {
-  id: 6,
-  name: 'fff',
-  host: '1131',
+// 从数据库中读取的连接4
+const db4Connection: DbConnection = {
+  id: 1,
+  name: '127_docker',
+  host: '127.0.0.1',
   port: 3306,
-  username: 'gzzhengjing',
-  password: 'a123456',
-  database_name: 'ffff',
-  db_type: 'mysql'
-};
-
-// Added from database: 6dd
-const db6Connection: DbConnection = {
-  id: 7,
-  name: '6dd',
-  host: '1122.88.66.55',
-  port: 3306,
-  username: 'gzzhengjing',
-  password: 'a123456',
-  database_name: 'fff',
+  username: 'root',
+  password: 'root',
+  database_name: 'sqlrest',
   db_type: 'mysql'
 };
 
@@ -91,9 +70,7 @@ export const dbConnections: Record<string, DbConnection> = {
   [db1Connection.name]: db1Connection,
   [db2Connection.name]: db2Connection,
   [db3Connection.name]: db3Connection,
-  [db4Connection.name]: db4Connection,
-  [db5Connection.name]: db5Connection,
-  [db6Connection.name]: db6Connection
+  [db4Connection.name]: db4Connection
 };
 
 /**

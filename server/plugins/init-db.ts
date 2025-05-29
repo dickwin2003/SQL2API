@@ -10,8 +10,8 @@ export default defineNitroPlugin(async () => {
     // 初始化主数据库
     await initDatabase();
     
-    // 初始化 SQLite 数据库（可选）
-    await Promise.resolve(initSqliteDb());
+    // 注释掉多余的SQLite初始化，因为它也在访问同一个meta.db文件
+    // await Promise.resolve(initSqliteDb());
     
     // 初始化数据库连接
     console.log('正在初始化数据库连接...');

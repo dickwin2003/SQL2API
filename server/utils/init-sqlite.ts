@@ -18,7 +18,7 @@ export function initSqliteDb(): Promise<void> {
         fs.mkdirSync(dataDir, { recursive: true });
       }
 
-      const dbPath = path.join(dataDir, 'db.sqlite');
+      const dbPath = path.join(dataDir, 'meta.db');
 
       // 初始化数据库
       const db = new sqlite3.Database(dbPath, (err) => {

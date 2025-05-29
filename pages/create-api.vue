@@ -271,7 +271,7 @@ async function fetchConnections() {
     const data = await response.json();
     
     if (data.success) {
-      connections.value = data.connections.filter(conn => conn.is_active);
+      connections.value = data.connections; // 显示所有连接，不再过滤is_active
     } else {
       ElMessage.error(data.message || '获取数据库连接列表失败');
     }

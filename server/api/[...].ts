@@ -7,6 +7,10 @@ import {
 } from "h3";
 import { getClientIP, getRequestMeta } from "~/server/utils/request";
 import db from "~/server/utils/db";
+// 导入专用的API数据库连接函数
+import * as apiDbConn from "~/server/utils/api-db-connection";
+// 导入数据库连接配置
+import { getDbConnectionByName, getAllDbConnections } from "~/db-config";
 
 /**
  * 动态路由处理器
@@ -137,15 +141,97 @@ export default defineEventHandler(async (event) => {
       sqlQuery = modifiedQuery;
     }
 
-    // 执行SQL查询
+    // 根据路由信息选择正确的数据库连接
+    let dbConn;
+    try {
+      // 从路由结果中获取数据库连接信息
+      let dbConnInfo;
+      
+      // 首先检查是否有db_conn_name字段，优先使用它从db-config.ts获取连接信息
+      if (routeResult.db_conn_name) {
+        // 使用db_conn_name从预定义配置中获取连接信息
+        dbConn = getDbConnectionByName(routeResult.db_conn_name);
+        if (dbConn) {
+          console.log(`使用预定义的数据库连接: ${routeResult.db_conn_name}`);
+          // 打印连接详细信息以便调试
+          console.log('数据库连接详细信息:', {
+            ...dbConn,
+            password: '******' // 隐藏密码
+          });
+        } else {
+          console.warn(`未找到预定义的数据库连接: ${routeResult.db_conn_name}，尝试其他方式`);
+          console.log('可用的数据库连接:', Object.keys(getAllDbConnections()));
+        }
+      }
+      
+      // 如果没有通过db_conn_name找到连接，尝试其他方式
+      if (!dbConn) {
+        try {
+          // 尝试解析路由结果中的数据库连接信息
+          if (routeResult.db_conn) {
+            dbConnInfo = JSON.parse(routeResult.db_conn);
+            console.log('使用路由中的数据库连接信息');
+          }
+        } catch (parseError) {
+          console.error('解析数据库连接信息失败:', parseError);
+        }
+      }
+      
+      // 如果还是没有找到连接，则使用从路由中解析的数据库连接信息
+      if (!dbConn && dbConnInfo) {
+        // 使用从路由中解析的数据库连接信息
+        dbConn = dbConnInfo;
+        console.log('使用从路由中解析的数据库连接信息');
+      }
+      
+      // 如果仍然没有连接信息，则抛出错误
+      if (!dbConn) {
+        throw new Error(`无法找到数据库连接信息。API路由ID: ${routeResult.id}, 路径: ${path}, 数据库连接名称: ${routeResult.db_conn_name || '未指定'}`); 
+      }
+      
+      // 打印最终使用的数据库连接信息（隐藏密码）
+      console.log('最终使用的数据库连接信息:', {
+        ...dbConn,
+        password: '******' // 隐藏密码
+      });
+    } catch (error) {
+      console.error('获取数据库连接信息失败:', error);
+      throw createError({
+        statusCode: 500,
+        statusMessage: `数据库配置错误: ${error.message || "未知错误"}`
+      });
+    }
+    
+    // 根据数据库类型执行查询
     let result;
     console.log("sqlParams：", sqlParams);
-    if (sqlParams.length > 0) {
-      // 有参数的查询
-      result = await db.all(sqlQuery, sqlParams);
-    } else {
-      // 无参数的查询
-      result = await db.all(sqlQuery);
+    console.log("数据库连接信息:", dbConn);
+
+    try {
+      switch (dbConn.db_type) {
+        case "mysql":
+          result = await apiDbConn.executeApiMySqlQuery(dbConn, sqlQuery, sqlParams);
+          break;
+        case "postgresql":
+          result = await apiDbConn.executeApiPostgreSqlQuery(dbConn, sqlQuery, sqlParams);
+          break;
+        case "sqlserver":
+          result = await apiDbConn.executeApiSqlServerQuery(dbConn, sqlQuery, sqlParams);
+          break;
+        case "sqlite":
+          // SQLite使用默认的db实例
+          const sqliteResult = await apiDbConn.executeApiSqliteQuery(dbConn, sqlQuery, sqlParams);
+          result = sqliteResult.rows;
+          break;
+        default:
+          throw new Error(`不支持的数据库类型: ${dbConn.db_type}`);
+      }
+    } catch (dbError) {
+      console.error("数据库查询错误:", dbError);
+      throw createError({
+        statusCode: 500,
+        statusMessage: `数据库查询错误: ${dbError.message || "未知错误"}`
+      });
     }
 
     console.log("执行SQL：");

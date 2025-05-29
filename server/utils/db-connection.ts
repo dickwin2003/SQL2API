@@ -3,15 +3,16 @@
  * 用于连接不同类型的数据库并执行查询
  */
 import { H3Event } from 'h3';
-import { DbConnection, TestConnectionResult } from '~/types/db-connection';
 import { getDbConnById } from '~/server/utils/db-manager';
+import * as oracledb from 'oracledb';
 import mysql from 'mysql2/promise';
 import pg from 'pg';
 import { Connection, Request, TYPES } from 'tedious';
-import Database from 'better-sqlite3';
+import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
+import * as mssql from 'mssql';
 
 // 数据库连接类型
 export interface DbConnection {
@@ -211,8 +212,16 @@ async function testMySqlConnection(connection: DbConnection): Promise<TestConnec
 
 /**
  * 获取MySQL表和视图列表
+ * 兼容MySQL 5.7和MySQL 8.0+版本
  */
-async function getMySqlTables(connection: DbConnection): Promise<any[]> {
+  async function getMySqlTables(connection: DbConnection): Promise<Array<{
+    name: string;
+    type: string;
+    rows: number;
+    size: string;
+    create_time: string;
+    comment: string;
+  }>> {
   let conn;
   try {
     // 创建MySQL连接
@@ -225,49 +234,128 @@ async function getMySqlTables(connection: DbConnection): Promise<any[]> {
       connectTimeout: 10000 // 10秒连接超时
     });
     
-    // 获取表列表
-    const [tables] = await conn.execute(`
-      SELECT 
-        table_name AS name, 
-        'table' AS type,
-        table_rows AS rows,
-        ROUND((data_length + index_length) / 1024) AS size_kb,
-        create_time,
-        table_comment AS comment
-      FROM 
-        information_schema.tables 
-      WHERE 
-        table_schema = ? 
-        AND table_type = 'BASE TABLE'
-    `, [connection.database_name]);
+    // 先检查MySQL版本
+    const [versionResult] = await conn.execute('SELECT VERSION() as version');
+    const mysqlVersion = (versionResult as any[])[0].version;
+    console.log(`检测到MySQL版本: ${mysqlVersion}`);
     
-    // 获取视图列表
-    const [views] = await conn.execute(`
-      SELECT 
-        table_name AS name, 
-        'view' AS type,
-        NULL AS rows,
-        0 AS size_kb,
-        create_time,
-        table_comment AS comment
-      FROM 
-        information_schema.tables 
-      WHERE 
-        table_schema = ? 
-        AND table_type = 'VIEW'
-    `, [connection.database_name]);
+    // 根据版本使用不同的查询
+    let tablesQuery;
     
-    // 合并表和视图结果
-    const result = [...(tables as any[]), ...(views as any[])].map(item => ({
-      name: item.name,
-      type: item.type,
-      rows: item.rows || 0,
-      size: item.size_kb ? `${item.size_kb} KB` : '-',
-      create_time: item.create_time ? new Date(item.create_time).toISOString() : new Date().toISOString(),
-      comment: item.comment || ''
-    }));
-    
-    return result;
+    if (mysqlVersion.startsWith('5.')) {
+      // MySQL 5.x版本的查询
+      tablesQuery = `
+        SELECT 
+          table_name AS name, 
+          'table' AS type,
+          0 AS rows,
+          0 AS size_kb,
+          create_time,
+          table_comment AS comment
+        FROM 
+          information_schema.tables 
+        WHERE 
+          table_schema = ? 
+          AND table_type = 'BASE TABLE'
+      `;
+      
+      // 对于5.x版本，我们需要单独查询每个表的行数
+      const [tables] = await conn.execute(tablesQuery, [connection.database_name]);
+      
+      // 对于每个表，单独查询行数
+      for (const table of tables as any[]) {
+        try {
+          const [rowsResult] = await conn.execute(`SELECT COUNT(*) as count FROM \`${table.name}\``);          
+          table.rows = (rowsResult as any[])[0].count || 0;
+          
+          // 尝试获取表大小
+          const [statusResult] = await conn.execute(`SHOW TABLE STATUS LIKE '${table.name}'`);
+          if (statusResult && (statusResult as any[]).length > 0) {
+            const status = (statusResult as any[])[0];
+            const dataLength = status.Data_length || 0;
+            const indexLength = status.Index_length || 0;
+            table.size_kb = Math.round((dataLength + indexLength) / 1024);
+          }
+        } catch (tableError) {
+          console.warn(`无法获取表 ${table.name} 的行数或大小:`, tableError);
+        }
+      }
+      
+      // 获取视图列表
+      const [views] = await conn.execute(`
+        SELECT 
+          table_name AS name, 
+          'view' AS type,
+          NULL AS rows,
+          0 AS size_kb,
+          create_time,
+          table_comment AS comment
+        FROM 
+          information_schema.tables 
+        WHERE 
+          table_schema = ? 
+          AND table_type = 'VIEW'
+      `, [connection.database_name]);
+      
+      // 合并表和视图结果
+      const result = [...(tables as any[]), ...(views as any[])].map(item => ({
+        name: item.name,
+        type: item.type,
+        rows: item.rows !== null ? item.rows : 0,
+        size: item.size_kb ? `${item.size_kb} KB` : '-',
+        create_time: item.create_time ? new Date(item.create_time).toISOString() : new Date().toISOString(),
+        comment: item.comment || ''
+      }));
+      
+      return result;
+    } else {
+      // MySQL 8.0+版本的查询
+      tablesQuery = `
+        SELECT 
+          table_name AS name, 
+          'table' AS type,
+          table_rows AS rows,
+          ROUND((data_length + index_length) / 1024) AS size_kb,
+          create_time,
+          table_comment AS comment
+        FROM 
+          information_schema.tables 
+        WHERE 
+          table_schema = ? 
+          AND table_type = 'BASE TABLE'
+      `;
+      
+      // 获取表列表
+      const [tables] = await conn.execute(tablesQuery, [connection.database_name]);
+      
+      // 获取视图列表
+      const [views] = await conn.execute(`
+        SELECT 
+          table_name AS name, 
+          'view' AS type,
+          NULL AS rows,
+          0 AS size_kb,
+          create_time,
+          table_comment AS comment
+        FROM 
+          information_schema.tables 
+        WHERE 
+          table_schema = ? 
+          AND table_type = 'VIEW'
+      `, [connection.database_name]);
+      
+      // 合并表和视图结果
+      const result = [...(tables as any[]), ...(views as any[])].map(item => ({
+        name: item.name,
+        type: item.type,
+        rows: item.rows !== null ? item.rows : 0,
+        size: item.size_kb ? `${item.size_kb} KB` : '-',
+        create_time: item.create_time ? new Date(item.create_time).toISOString() : new Date().toISOString(),
+        comment: item.comment || ''
+      }));
+      
+      return result;
+    }
   } catch (error: any) {
     console.error(`获取MySQL表列表失败:`, error);
     return [];
@@ -285,7 +373,24 @@ async function getMySqlTables(connection: DbConnection): Promise<any[]> {
 /**
  * 获取MySQL表结构
  */
-async function getMySqlTableStructure(connection: DbConnection, tableName: string): Promise<any> {
+  async function getMySqlTableStructure(connection: DbConnection, tableName: string): Promise<{
+    name: string;
+    comment: string;
+    fields: Array<{
+      name: string;
+      type: string;
+      nullable: boolean;
+      default: any;
+      primary: boolean;
+      comment: string;
+      extra: string;
+    }>;
+    indexes: Array<{
+      name: string;
+      columns: string[];
+      unique: boolean;
+    }>;
+  }> {
   let conn;
   try {
     // 创建MySQL连接
@@ -348,7 +453,7 @@ async function getMySqlTableStructure(connection: DbConnection, tableName: strin
     
     // 处理索引信息
     const indexMap = new Map();
-    (indexInfo as any[]).forEach(idx => {
+    (indexInfo as Array<{name: string; column_name: string; is_unique: boolean}>).forEach(idx => {
       if (!indexMap.has(idx.name)) {
         indexMap.set(idx.name, {
           name: idx.name,
@@ -396,7 +501,12 @@ async function getMySqlTableStructure(connection: DbConnection, tableName: strin
 /**
  * 执行MySQL查询
  */
-async function executeMySqlQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
+  export async function executeMySqlQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<{
+    fields: string[];
+    rows: any[];
+    rowCount: number;
+    sql: string;
+  }> {
   let conn;
   try {
     // 创建MySQL连接
@@ -483,7 +593,14 @@ async function testPostgreSqlConnection(connection: DbConnection): Promise<TestC
 /**
  * 获取PostgreSQL表和视图列表
  */
-async function getPostgreSqlTables(connection: DbConnection): Promise<any[]> {
+  async function getPostgreSqlTables(connection: DbConnection): Promise<Array<{
+    name: string;
+    type: string;
+    rows: number;
+    size: string;
+    create_time: string;
+    comment: string;
+  }>> {
   const client = new pg.Client({
     host: connection.host,
     port: connection.port,
@@ -569,7 +686,23 @@ async function getPostgreSqlTables(connection: DbConnection): Promise<any[]> {
 /**
  * 获取PostgreSQL表结构
  */
-async function getPostgreSqlTableStructure(connection: DbConnection, tableName: string): Promise<any> {
+  async function getPostgreSqlTableStructure(connection: DbConnection, tableName: string): Promise<{
+    name: string;
+    comment: string;
+    fields: Array<{
+      name: string;
+      type: string;
+      nullable: boolean;
+      default: any;
+      primary: boolean;
+      comment: string;
+    }>;
+    indexes: Array<{
+      name: string;
+      columns: string[];
+      unique: boolean;
+    }>;
+  }> {
   const client = new pg.Client({
     host: connection.host,
     port: connection.port,
@@ -655,7 +788,7 @@ async function getPostgreSqlTableStructure(connection: DbConnection, tableName: 
     
     // 处理索引信息
     const indexMap = new Map();
-    indexesResult.rows.forEach(idx => {
+    (indexesResult.rows as Array<{name: string; column_name: string; is_unique: boolean}>).forEach(idx => {
       if (!indexMap.has(idx.name)) {
         indexMap.set(idx.name, {
           name: idx.name,
@@ -700,7 +833,12 @@ async function getPostgreSqlTableStructure(connection: DbConnection, tableName: 
 /**
  * 执行PostgreSQL查询
  */
-async function executePostgreSqlQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
+  export async function executePostgreSqlQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<{
+    fields: string[];
+    rows: any[];
+    rowCount: number;
+    sql: string;
+  }> {
   const client = new pg.Client({
     host: connection.host,
     port: connection.port,
@@ -743,21 +881,21 @@ async function executePostgreSqlQuery(connection: DbConnection, sql: string, par
  * 测试SQL Server连接
  */
 async function testSqlServerConnection(connection: DbConnection): Promise<TestConnectionResult> {
-  const config = {
-    server: connection.host,
-    port: connection.port,
-    user: connection.username,
-    password: connection.password,
-    database: connection.database_name,
-    options: {
-      trustServerCertificate: true, // 开发环境中可以设置为true
-      connectTimeout: 10000 // 10秒连接超时
-    }
-  };
-  
   try {
+    const config = {
+      server: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name,
+      options: {
+        trustServerCertificate: true,
+        connectTimeout: 10000
+      }
+    };
+    
     // 创建连接池
-    const pool = await sql.connect(config);
+    const pool = await mssql.connect(config);
     
     // 获取版本信息
     const result = await pool.request().query('SELECT @@VERSION as version');
@@ -790,7 +928,14 @@ async function testSqlServerConnection(connection: DbConnection): Promise<TestCo
 /**
  * 获取SQL Server表和视图列表
  */
-async function getSqlServerTables(connection: DbConnection): Promise<any[]> {
+async function getSqlServerTables(connection: DbConnection): Promise<Array<{
+  name: string;
+  type: string;
+  rows: number;
+  size: string;
+  create_time: string;
+  comment: string;
+}>> {
   const config = {
     server: connection.host,
     port: connection.port,
@@ -805,7 +950,7 @@ async function getSqlServerTables(connection: DbConnection): Promise<any[]> {
   
   try {
     // 创建连接池
-    const pool = await sql.connect(config);
+    const pool = await mssql.connect(config);
     
     // 获取表列表
     const tablesQuery = `
@@ -875,7 +1020,23 @@ async function getSqlServerTables(connection: DbConnection): Promise<any[]> {
 /**
  * 获取SQL Server表结构
  */
-async function getSqlServerTableStructure(connection: DbConnection, tableName: string): Promise<any> {
+async function getSqlServerTableStructure(connection: DbConnection, tableName: string): Promise<{
+  name: string;
+  comment: string;
+  fields: Array<{
+    name: string;
+    type: string;
+    nullable: boolean;
+    default: any;
+    primary: boolean;
+    comment: string;
+  }>;
+  indexes: Array<{
+    name: string;
+    columns: string[];
+    unique: boolean;
+  }>;
+}> {
   const config = {
     server: connection.host,
     port: connection.port,
@@ -890,7 +1051,7 @@ async function getSqlServerTableStructure(connection: DbConnection, tableName: s
   
   try {
     // 创建连接池
-    const pool = await sql.connect(config);
+    const pool = await mssql.connect(config);
     
     // 获取表注释
     const tableCommentQuery = `
@@ -905,7 +1066,7 @@ async function getSqlServerTableStructure(connection: DbConnection, tableName: s
     `;
     
     const tableCommentResult = await pool.request()
-      .input('tableName', sql.NVarChar, tableName)
+      .input('tableName', mssql.NVarChar, tableName)
       .query(tableCommentQuery);
     
     const tableComment = tableCommentResult.recordset[0]?.comment || '';
@@ -950,7 +1111,7 @@ async function getSqlServerTableStructure(connection: DbConnection, tableName: s
     `;
     
     const columnsResult = await pool.request()
-      .input('tableName', sql.NVarChar, tableName)
+      .input('tableName', mssql.NVarChar, tableName)
       .query(columnsQuery);
     
     // 获取索引信息
@@ -975,12 +1136,12 @@ async function getSqlServerTableStructure(connection: DbConnection, tableName: s
     `;
     
     const indexesResult = await pool.request()
-      .input('tableName', sql.NVarChar, tableName)
+      .input('tableName', mssql.NVarChar, tableName)
       .query(indexesQuery);
     
     // 处理索引信息
     const indexMap = new Map();
-    indexesResult.recordset.forEach(idx => {
+    (indexesResult.recordset as Array<{name: string; column_name: string; is_unique: boolean}>).forEach(idx => {
       if (!indexMap.has(idx.name)) {
         indexMap.set(idx.name, {
           name: idx.name,
@@ -1035,65 +1196,70 @@ async function getSqlServerTableStructure(connection: DbConnection, tableName: s
 /**
  * 执行SQL Server查询
  */
-async function executeSqlServerQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
-  const config = {
-    server: connection.host,
-    port: connection.port,
-    user: connection.username,
-    password: connection.password,
-    database: connection.database_name,
-    options: {
-      trustServerCertificate: true,
-      connectTimeout: 10000
-    }
-  };
-  
+export async function executeSqlServerQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<{
+  fields: string[];
+  rows: any[];
+  rowCount: number;
+  sql: string;
+}> {
   try {
-    // 创建连接池
-    const pool = await sql.connect(config);
+    const config = {
+      server: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name,
+      options: {
+        trustServerCertificate: true,
+        connectTimeout: 10000,
+        encrypt: false
+      }
+    };
+
+    // Create a connection pool
+    const pool = await mssql.connect(config);
     
-    // 准备请求
+    // Prepare the request
     let request = pool.request();
     
-    // 添加参数
+    // Add parameters
     if (params && params.length > 0) {
-      // SQL Server参数使用@p1, @p2等命名方式
-      // 需要将?替换为@p1, @p2等
       const paramNames: string[] = [];
       let paramIndex = 0;
       
-      // 替换SQL中的?为@p1, @p2等
       sql = sql.replace(/\?/g, () => {
         const paramName = `@p${++paramIndex}`;
         paramNames.push(paramName);
         return paramName;
       });
       
-      // 添加参数到请求
       params.forEach((param, index) => {
-        if (index < paramNames.length) {
-          request = request.input(paramNames[index].substring(1), param);
+        if (param === null || param === undefined) {
+          request = request.input(paramNames[index], null);
+        } else if (typeof param === 'boolean') {
+          request = request.input(paramNames[index], mssql.Bit, param);
+        } else if (typeof param === 'number') {
+          request = request.input(paramNames[index], mssql.Float, param);
+        } else if (typeof param === 'string') {
+          request = request.input(paramNames[index], mssql.NVarChar, param);
+        } else {
+          request = request.input(paramNames[index], param);
         }
       });
     }
     
-    // 执行查询
+    // Execute the query
     const result = await request.query(sql);
     
-    // 处理字段信息
-    const fieldNames = result.recordset && result.recordset.length > 0 
-      ? Object.keys(result.recordset[0]) 
-      : [];
+    // Close the pool
+    await pool.close();
     
-    const response = {
-      fields: fieldNames,
+    return {
+      fields: result.recordset.length > 0 ? Object.keys(result.recordset[0]) : [],
       rows: result.recordset,
-      rowCount: result.recordset.length,
+      rowCount: result.rowsAffected ? result.rowsAffected[0] : 0,
       sql: sql
     };
-    
-    await pool.close();
-    return response;
   } catch (error: any) {
     console.error(`执行SQL Server查询失败:`, error);
     throw error;
@@ -1106,107 +1272,307 @@ async function executeSqlServerQuery(connection: DbConnection, sql: string, para
  * 测试Oracle连接
  */
 async function testOracleConnection(connection: DbConnection): Promise<TestConnectionResult> {
-  // 这里是模拟实现，实际应用中应该使用oracledb或类似库进行连接测试
-  return {
-    success: true,
-    message: '连接成功',
-    details: {
-      server: 'Oracle Database',
-      version: '19c',
-      connection_id: 98765
+  let conn;
+  try {
+    // 创建Oracle连接
+    conn = await oracledb.getConnection({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name
+    });
+    
+    // 获取版本信息
+    const result = await conn.execute('SELECT * FROM v$version');
+    const version = result.rows && result.rows.length > 0 ? result.rows[0][0] : 'Unknown';
+    
+    return {
+      success: true,
+      message: '连接成功',
+      details: {
+        server: 'Oracle',
+        version: version,
+        connection_id: conn.getConnectionId()
+      }
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Oracle连接失败: ${error.message}`,
+      details: error
+    };
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (e) {
+        console.error('Error closing Oracle connection:', e);
+      }
     }
-  };
+  }
 }
 
 /**
  * 获取Oracle表和视图列表
  */
-async function getOracleTables(connection: DbConnection): Promise<any[]> {
-  // 这里是模拟实现，实际应用中应该使用oracledb或类似库进行查询
-  return [
-    {
-      name: 'USERS',
-      type: 'table',
-      rows: 2500,
-      size: '448 KB',
-      create_time: new Date().toISOString(),
-      comment: '用户表'
-    },
-    {
-      name: 'PRODUCTS',
-      type: 'table',
-      rows: 6000,
-      size: '896 KB',
-      create_time: new Date().toISOString(),
-      comment: '产品表'
-    },
-    {
-      name: 'PRODUCT_VIEW',
-      type: 'view',
-      create_time: new Date().toISOString(),
-      comment: '产品视图'
+async function getOracleTables(connection: DbConnection): Promise<Array<{
+  name: string;
+  type: string;
+  rows: number;
+  size: string;
+  create_time: string;
+  comment: string;
+}>> {
+  let conn;
+  try {
+    // 创建Oracle连接
+    conn = await oracledb.getConnection({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name
+    });
+    
+    // 获取表列表
+    const tablesQuery = `
+      SELECT 
+        table_name AS name,
+        'table' AS type,
+        num_rows AS rows,
+        ROUND((block_size * num_blocks) / 1024) AS size_kb,
+        created AS create_time,
+        comments AS comment
+      FROM 
+        user_tables
+      ORDER BY 
+        table_name
+    `;
+    
+    // 获取视图列表
+    const viewsQuery = `
+      SELECT 
+        view_name AS name,
+        'view' AS type,
+        NULL AS rows,
+        0 AS size_kb,
+        created AS create_time,
+        comments AS comment
+      FROM 
+        user_views
+      ORDER BY 
+        view_name
+    `;
+    
+    const tablesResult = await conn.execute(tablesQuery);
+    const viewsResult = await conn.execute(viewsQuery);
+    
+    // 合并表和视图结果
+    const result = [...tablesResult.rows, ...viewsResult.rows].map(item => ({
+      name: item.name,
+      type: item.type,
+      rows: item.rows || 0,
+      size: item.size_kb ? `${item.size_kb} KB` : '-',
+      create_time: item.create_time ? new Date(item.create_time).toISOString() : new Date().toISOString(),
+      comment: item.comment || ''
+    }));
+    
+    return result;
+  } catch (error: any) {
+    console.error(`获取Oracle表列表失败:`, error);
+    return [];
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (e) {
+        console.error('Error closing Oracle connection:', e);
+      }
     }
-  ];
+  }
 }
 
 /**
  * 获取Oracle表结构
  */
-async function getOracleTableStructure(connection: DbConnection, tableName: string): Promise<any> {
-  // 这里是模拟实现，实际应用中应该使用oracledb或类似库进行查询
-  return {
-    name: tableName,
-    comment: '表注释',
-    fields: [
-      {
-        name: 'ID',
-        type: 'NUMBER',
-        nullable: false,
-        default: null,
-        primary: true,
-        comment: '主键ID'
-      },
-      {
-        name: 'NAME',
-        type: 'VARCHAR2(100)',
-        nullable: false,
-        default: null,
-        primary: false,
-        comment: '名称'
-      },
-      {
-        name: 'CREATED_AT',
-        type: 'TIMESTAMP',
-        nullable: true,
-        default: 'SYSTIMESTAMP',
-        primary: false,
-        comment: '创建时间'
+async function getOracleTableStructure(connection: DbConnection, tableName: string): Promise<{
+  name: string;
+  comment: string;
+  fields: Array<{
+    name: string;
+    type: string;
+    nullable: boolean;
+    default: any;
+    primary: boolean;
+    comment: string;
+  }>;
+  indexes: Array<{
+    name: string;
+    columns: string[];
+    unique: boolean;
+  }>;
+}> {
+  let conn;
+  try {
+    // 创建Oracle连接
+    conn = await oracledb.getConnection({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name
+    });
+    
+    // 获取表注释
+    const tableCommentQuery = `
+      SELECT 
+        comments
+      FROM 
+        user_tab_comments
+      WHERE 
+        table_name = UPPER(:tableName)
+    `;
+    
+    const tableCommentResult = await conn.execute(tableCommentQuery, [tableName]);
+    const tableComment = tableCommentResult.rows && tableCommentResult.rows.length > 0 ? tableCommentResult.rows[0][0] : '';
+    
+    // 获取字段信息
+    const columnsQuery = `
+      SELECT 
+        a.column_name AS name,
+        data_type AS type,
+        nullable,
+        data_default AS default_value,
+        (CASE WHEN c.constraint_type = 'P' THEN 'YES' ELSE 'NO' END) AS primary_key,
+        col_comments AS comment
+      FROM 
+        user_tab_columns a
+      LEFT JOIN 
+        user_col_comments c ON a.table_name = c.table_name AND a.column_name = c.column_name
+      WHERE 
+        a.table_name = UPPER(:tableName)
+      ORDER BY 
+        a.column_id
+    `;
+    
+    const columnsResult = await conn.execute(columnsQuery, [tableName]);
+    
+    // 获取索引信息
+    const indexesQuery = `
+      SELECT 
+        i.index_name AS name,
+        c.column_name,
+        i.uniqueness = 'UNIQUE' AS is_unique
+      FROM 
+        user_indexes i
+      JOIN 
+        user_ind_columns c ON i.index_name = c.index_name
+      WHERE 
+        i.table_name = UPPER(:tableName)
+      ORDER BY 
+        i.index_name, c.column_position
+    `;
+    
+    const indexesResult = await conn.execute(indexesQuery, [tableName]);
+    
+    // 处理索引信息
+    const indexMap = new Map();
+    (indexesResult.rows as Array<{name: string; column_name: string; is_unique: boolean}>).forEach(idx => {
+      if (!indexMap.has(idx.name)) {
+        indexMap.set(idx.name, {
+          name: idx.name,
+          columns: [],
+          unique: idx.is_unique
+        });
       }
-    ],
-    indexes: [
-      {
-        name: 'PK_' + tableName,
-        columns: ['ID'],
-        unique: true
+      indexMap.get(idx.name).columns.push(idx.column_name);
+    });
+    
+    // 构建返回结果
+    return {
+      name: tableName,
+      comment: tableComment,
+      fields: columnsResult.rows.map(col => ({
+        name: col.name,
+        type: col.type,
+        nullable: col.nullable === 'Y',
+        default: col.default_value,
+        primary: col.primary_key === 'YES',
+        comment: col.comment || ''
+      })),
+      indexes: Array.from(indexMap.values())
+    };
+  } catch (error: any) {
+    console.error(`获取Oracle表结构失败:`, error);
+    return {
+      name: tableName,
+      comment: '',
+      fields: [],
+      indexes: []
+    };
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (e) {
+        console.error('Error closing Oracle connection:', e);
       }
-    ]
-  };
+    }
+  }
 }
 
 /**
  * 执行Oracle查询
  */
-async function executeOracleQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
-  // 这里是模拟实现，实际应用中应该使用oracledb或类似库进行查询
-  return {
-    fields: ['ID', 'NAME', 'EMAIL'],
-    rows: [
-      { ID: 1, NAME: '张三', EMAIL: 'zhangsan@example.com' },
-      { ID: 2, NAME: '李四', EMAIL: 'lisi@example.com' }
-    ],
-    rowCount: 2,
-    sql: sql
-  };
+export async function executeOracleQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<{
+  fields: string[];
+  rows: any[];
+  rowCount: number;
+  sql: string;
+}> {
+  let conn;
+  try {
+    // 创建Oracle连接
+    conn = await oracledb.getConnection({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name
+    });
+    
+    // 处理参数
+    const bindParams: { [key: string]: any } = {};
+    const paramNames: string[] = [];
+    
+    params.forEach((param, index) => {
+      const paramName = `p${index + 1}`;
+      paramNames.push(paramName);
+      bindParams[paramName] = param;
+    });
+    
+    // 执行查询
+    const result = await conn.execute(sql, bindParams);
+    
+    return {
+      fields: result.metaData ? result.metaData.map((f: any) => f.name) : [],
+      rows: result.rows || [],
+      rowCount: result.rows ? result.rows.length : 0,
+      sql: sql
+    };
+  } catch (error: any) {
+    console.error(`执行Oracle查询失败:`, error);
+    throw error;
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (e) {
+        console.error('Error closing Oracle connection:', e);
+      }
+    }
+  }
 }
 
 // ==================== SQLite 实现 ====================
@@ -1215,165 +1581,215 @@ async function executeOracleQuery(connection: DbConnection, sql: string, params:
  * 测试SQLite连接
  */
 async function testSqliteConnection(connection: DbConnection): Promise<TestConnectionResult> {
-  try {
-    // 检查文件是否存在
-    const dbPath = connection.host; // SQLite的host字段存储文件路径
-    const exists = await fs.promises.access(dbPath, fs.constants.F_OK)
-      .then(() => true)
-      .catch(() => false);
-    
-    if (!exists) {
-      return {
-        success: false,
-        message: `SQLite数据库文件不存在: ${dbPath}`,
-        details: null
-      };
-    }
-    
-    // 打开数据库连接
-    const db = new Database(dbPath);
-    
-    // 获取版本信息
-    const versionResult = db.prepare('SELECT sqlite_version() as version').get();
-    const version = versionResult?.version || 'Unknown';
-    
-    db.close();
-    
-    return {
-      success: true,
-      message: '连接成功',
-      details: {
-        server: 'SQLite',
-        version: version,
-        connection_id: Date.now() // SQLite没有连接ID概念，使用时间戳代替
+  return new Promise((resolve) => {
+    try {
+      // 确定数据库路径
+      const dbPath = connection.connection_string || 
+        path.join(process.cwd(), 'data', `${connection.database_name}.db`);
+      
+      // 确保目录存在
+      const dirPath = path.dirname(dbPath);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
       }
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: `SQLite连接失败: ${error.message}`,
-      details: error
-    };
-  }
+      
+      // 打开SQLite数据库
+      const db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+          resolve({
+            success: false,
+            message: `SQLite连接失败: ${err.message}`,
+            details: err
+          });
+          return;
+        }
+        
+        // 测试连接
+        db.get('SELECT 1 AS test', (err, row) => {
+          if (err) {
+            db.close();
+            resolve({
+              success: false,
+              message: `SQLite查询失败: ${err.message}`,
+              details: err
+            });
+            return;
+          }
+          
+          db.close();
+          resolve({
+            success: true,
+            message: '连接成功',
+            details: {
+              server: 'SQLite',
+              version: 'N/A',
+              connection_id: 'N/A'
+            }
+          });
+        });
+      });
+    } catch (error: any) {
+      resolve({
+        success: false,
+        message: `SQLite连接失败: ${error.message}`,
+        details: error
+      });
+    }
+  });
 }
 
 /**
  * 获取SQLite表和视图列表
  */
-async function getSqliteTables(connection: DbConnection): Promise<any[]> {
-  try {
-    const dbPath = connection.host;
-    const db = new Database(dbPath);
-
-    // 获取所有表和视图
-    const tables = db.prepare(`
-      SELECT 
-        name,
-        type,
-        (SELECT COUNT(*) FROM "main"."" || name) as rows,
-        (SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()) as size_bytes,
-        NULL as create_time,
-        NULL as comment
-      FROM sqlite_master 
-      WHERE type IN ('table', 'view')
-      AND name NOT LIKE 'sqlite_%'
-      ORDER BY name
-    `).all();
-
-    db.close();
-
-    // 处理数据并合并结果
-    const result = tables.map(item => {
-      // 处理大小显示
-      let sizeStr = '-';
-      if (item.size_bytes) {
-        const sizeKB = Math.round(item.size_bytes / 1024);
-        if (sizeKB < 1024) {
-          sizeStr = `${sizeKB} KB`;
-        } else {
-          sizeStr = `${(sizeKB / 1024).toFixed(1)} MB`;
-        }
+async function getSqliteTables(connection: DbConnection): Promise<Array<{
+  name: string;
+  type: string;
+  rows: number;
+  size: string;
+  create_time: string;
+  comment: string;
+}>> {
+  return new Promise((resolve) => {
+    try {
+      // 确定数据库路径
+      const dbPath = connection.connection_string || 
+        path.join(process.cwd(), 'data', `${connection.database_name}.db`);
+      
+      // 确保目录存在
+      const dirPath = path.dirname(dbPath);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
       }
       
-      return {
-        name: item.name,
-        type: item.type,
-        rows: item.rows || 0,
-        size: sizeStr,
-        create_time: item.create_time || new Date().toISOString(),
-        comment: item.comment || ''
-      };
-    });
-    
-    return result;
-  } catch (error: any) {
-    console.error(`获取SQLite表列表失败:`, error);
-    return [];
-  }
+      // 打开SQLite数据库
+      const db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+          console.error(`打开SQLite数据库失败:`, err);
+          resolve([]);
+          return;
+        }
+        
+        // 获取表列表
+        const sql = `
+          SELECT 
+            name AS table_name, 
+            type,
+            NULL AS rows,
+            NULL AS size_kb,
+            NULL AS create_time,
+            NULL AS comment
+          FROM 
+            sqlite_master 
+          WHERE 
+            type IN ('table', 'view')
+        `;
+        
+        db.all(sql, [], (err, rows) => {
+          if (err) {
+            console.error(`获取SQLite表列表失败:`, err);
+            db.close();
+            resolve([]);
+            return;
+          }
+          
+          // 处理结果
+          const result = rows.map(item => ({
+            name: item.table_name,
+            type: item.type === 'table' ? 'table' : 'view',
+            rows: 0,
+            size: '-',
+            create_time: new Date().toISOString(),
+            comment: ''
+          }));
+          
+          db.close();
+          resolve(result);
+        });
+      });
+    } catch (error: any) {
+      console.error(`获取SQLite表列表失败:`, error);
+      resolve([]);
+    }
+  });
 }
 
 /**
  * 获取SQLite表结构
  */
-async function getSqliteTableStructure(connection: DbConnection, tableName: string): Promise<any> {
+async function getSqliteTableStructure(connection: DbConnection, tableName: string): Promise<{
+  name: string;
+  comment: string;
+  fields: Array<{
+    name: string;
+    type: string;
+    nullable: boolean;
+    default: any;
+    primary: boolean;
+    comment: string;
+  }>;
+  indexes: Array<{
+    name: string;
+    columns: string[];
+    unique: boolean;
+  }>;
+}> {
+  let db;
   try {
-    // 打开数据库连接
-    const db = await open({
-      filename: connection.host,
-      driver: sqlite3.Database
+    // 打开SQLite数据库
+    db = new Database(connection.database_name, {
+      verbose: console.log
     });
     
-    // 获取表结构
-    const tableInfo = await db.all(`PRAGMA table_info(${JSON.stringify(tableName)})`);
+    // 获取表注释
+    const tableComment = '';
+    
+    // 获取字段信息
+    const columns = db.prepare(`
+      PRAGMA table_info(?
+    `).all(tableName);
     
     // 获取索引信息
-    const indexList = await db.all(`PRAGMA index_list(${JSON.stringify(tableName)})`);
+    const indexInfo = db.prepare(`
+      SELECT 
+        name AS index_name,
+        sql AS index_sql
+      FROM 
+        sqlite_master 
+      WHERE 
+        type = 'index' 
+        AND tbl_name = ?
+    `).all(tableName);
     
-    // 处理索引详情
-    const indexes = [];
-    for (const idx of indexList) {
-      const indexInfo = await db.all(`PRAGMA index_info(${JSON.stringify(idx.name)})`);
-      const columns = indexInfo.map((info: any) => {
-        // 获取列名
-        const colName = tableInfo.find((col: any) => col.cid === info.cid)?.name;
-        return colName || '';
-      }).filter(Boolean);
-      
-      indexes.push({
-        name: idx.name,
-        columns: columns,
-        unique: idx.unique === 1
-      });
-    }
-    
-    // 处理主键
-    const primaryKeyColumns = tableInfo
-      .filter((col: any) => col.pk === 1)
-      .map((col: any) => col.name);
-    
-    if (primaryKeyColumns.length > 0 && !indexes.some(idx => idx.columns.join(',') === primaryKeyColumns.join(','))) {
-      indexes.push({
-        name: `pk_${tableName}`,
-        columns: primaryKeyColumns,
-        unique: true
-      });
-    }
-    
-    await db.close();
+    // 处理索引信息
+    const indexMap = new Map();
+    (indexInfo as Array<{index_name: string; index_sql: string}>).forEach(idx => {
+      if (!indexMap.has(idx.index_name)) {
+        indexMap.set(idx.index_name, {
+          name: idx.index_name,
+          columns: [],
+          unique: idx.index_sql.includes('UNIQUE')
+        });
+      }
+      const columnNames = idx.index_sql.match(/\(([^)]+)\)/);
+      if (columnNames) {
+        const columns = columnNames[1].split(',').map(c => c.trim());
+        indexMap.get(idx.index_name).columns.push(...columns);
+      }
+    });
     
     // 构建返回结果
     return {
       name: tableName,
-      comment: '',  // SQLite不支持表注释
-      fields: tableInfo.map((col: any) => ({
+      comment: tableComment,
+      fields: (columns as any[]).map(col => ({
         name: col.name,
         type: col.type,
         nullable: col.notnull === 0,
         default: col.dflt_value,
         primary: col.pk === 1,
-        comment: ''  // SQLite不支持列注释
+        comment: ''
       })),
-      indexes: indexes
+      indexes: Array.from(indexMap.values())
     };
   } catch (error: any) {
     console.error(`获取SQLite表结构失败:`, error);
@@ -1383,36 +1799,230 @@ async function getSqliteTableStructure(connection: DbConnection, tableName: stri
       fields: [],
       indexes: []
     };
+  } finally {
+    if (db) {
+      db.close();
+    }
   }
 }
 
 /**
  * 执行SQLite查询
  */
-async function executeSqliteQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
+export async function executeSqliteQuery(connection: DbConnection, sql: string, params: any[] = []): Promise<{
+  fields: string[];
+  rows: any[];
+  rowCount: number;
+  sql: string;
+}> {
+  return new Promise((resolve, reject) => {
+    try {
+      // 确定数据库路径
+      const dbPath = connection.connection_string || 
+        path.join(process.cwd(), 'data', `${connection.database_name}.db`);
+      
+      // 确保目录存在
+      const dirPath = path.dirname(dbPath);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      
+      // 打开SQLite数据库
+      const db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+          reject(new Error(`SQLite连接错误: ${err.message}`));
+          return;
+        }
+        
+        // 判断是否为查询操作
+        const isSelect = sql.trim().toLowerCase().startsWith('select');
+        
+        if (isSelect) {
+          // 查询操作
+          db.all(sql, params, (err, rows) => {
+            if (err) {
+              db.close();
+              reject(new Error(`SQLite查询错误: ${err.message}`));
+              return;
+            }
+            
+            // 获取列信息（如果有结果）
+            let fields: string[] = [];
+            if (rows && rows.length > 0) {
+              fields = Object.keys(rows[0]);
+            }
+            
+            db.close();
+            resolve({
+              fields: fields,
+              rows: rows,
+              rowCount: rows.length,
+              sql: sql
+            });
+          });
+        } else {
+          // 更新操作
+          db.run(sql, params, function(err) {
+            if (err) {
+              db.close();
+              reject(new Error(`SQLite更新错误: ${err.message}`));
+              return;
+            }
+            
+            db.close();
+            resolve({
+              fields: [],
+              rows: [{ changes: this.changes, lastID: this.lastID }],
+              rowCount: this.changes,
+              sql: sql
+            });
+          });
+        }
+      });
+    } catch (error: any) {
+      console.error(`执行SQLite查询失败:`, error);
+      reject(error);
+    }
+  });
+}
+
+// ==================== 统一接口 ====================
+/**
+ * 测试数据库连接
+ */
+export async function testConnection(connection: DbConnection): Promise<TestConnectionResult> {
   try {
-    // 打开数据库连接
-    const db = await open({
-      filename: connection.host,
-      driver: sqlite3.Database
-    });
-    
-    // 执行查询
-    const rows = await db.all(sql, params);
-    
-    // 获取字段信息
-    const fieldNames = rows.length > 0 ? Object.keys(rows[0]) : [];
-    
-    await db.close();
-    
-    return {
-      fields: fieldNames,
-      rows: rows,
-      rowCount: rows.length,
-      sql: sql
-    };
+    // 根据数据库类型选择不同的连接方式
+    switch (connection.db_type.toLowerCase()) {
+      case 'mysql':
+        return await testMySqlConnection(connection);
+      case 'postgresql':
+        return await testPostgreSqlConnection(connection);
+      case 'sqlserver':
+        return await testSqlServerConnection(connection);
+      case 'oracle':
+        return await testOracleConnection(connection);
+      case 'sqlite':
+        return await testSqliteConnection(connection);
+      default:
+        return {
+          success: false,
+          message: `不支持的数据库类型: ${connection.db_type}`
+        };
+    }
   } catch (error: any) {
-    console.error(`执行SQLite查询失败:`, error);
+    return {
+      success: false,
+      message: `连接测试失败: ${error.message}`,
+      details: error
+    };
+  }
+}
+
+/**
+ * 获取数据库对象列表（表和视图）
+ */
+export async function getObjects(connection: DbConnection): Promise<any[]> {
+  try {
+    // 根据数据库类型选择不同的查询方式
+    switch (connection.db_type.toLowerCase()) {
+      case 'mysql':
+        return await getMySqlTables(connection);
+      case 'postgresql':
+        return await getPostgreSqlTables(connection);
+      case 'sqlserver':
+        return await getSqlServerTables(connection);
+      case 'oracle':
+        return await getOracleTables(connection);
+      case 'sqlite':
+        return await getSqliteTables(connection);
+      default:
+        return [];
+    }
+  } catch (error) {
+    console.error(`获取对象列表失败:`, error);
+    return [];
+  }
+}
+
+/**
+ * 获取表结构信息
+ */
+export async function getStructure(connection: DbConnection, tableName: string): Promise<any> {
+  try {
+    // 根据数据库类型选择不同的查询方式
+    switch (connection.db_type.toLowerCase()) {
+      case 'mysql':
+        return await getMySqlTableStructure(connection, tableName);
+      case 'postgresql':
+        return await getPostgreSqlTableStructure(connection, tableName);
+      case 'sqlserver':
+        return await getSqlServerTableStructure(connection, tableName);
+      case 'oracle':
+        return await getOracleTableStructure(connection, tableName);
+      case 'sqlite':
+        return await getSqliteTableStructure(connection, tableName);
+      default:
+        return {
+          name: tableName,
+          fields: [],
+          indexes: []
+        };
+    }
+  } catch (error) {
+    console.error(`获取表结构失败:`, error);
+    return {
+      name: tableName,
+      fields: [],
+      indexes: []
+    };
+  }
+}
+
+/**
+ * 执行SQL查询
+ */
+export async function execute(connection: DbConnection, sql: string, params: any[] = []): Promise<any> {
+  try {
+    // 根据数据库类型选择不同的查询方式
+    switch (connection.db_type.toLowerCase()) {
+      case 'mysql':
+        return await executeMySqlQuery(connection, sql, params);
+      case 'postgresql':
+        return await executePostgreSqlQuery(connection, sql, params);
+      case 'sqlserver':
+        return await executeSqlServerQuery(connection, sql, params);
+      case 'oracle':
+        return await executeOracleQuery(connection, sql, params);
+      case 'sqlite':
+        return await executeSqliteQuery(connection, sql, params);
+      default:
+        throw new Error(`不支持的数据库类型: ${connection.db_type}`);
+    }
+  } catch (error) {
+    console.error(`执行查询失败:`, error);
+    throw error;
+  }
+}
+
+/**
+ * 将数据库连接信息写入环境变量
+ * @param connection 数据库连接信息
+ */
+export function writeDbConnToEnv(connection: DbConnection): void {
+  try {
+    process.env.DB_TYPE = connection.db_type;
+    process.env.DB_HOST = connection.host;
+    process.env.DB_PORT = connection.port.toString();
+    process.env.DB_USER = connection.username;
+    process.env.DB_PASSWORD = connection.password;
+    process.env.DB_NAME = connection.database_name;
+    if (connection.connection_string) {
+      process.env.DB_CONNECTION_STRING = connection.connection_string;
+    }
+    console.log('Database connection info written to environment variables');
+  } catch (error) {
+    console.error('Failed to write database connection info to environment variables:', error);
     throw error;
   }
 }

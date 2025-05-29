@@ -19,7 +19,8 @@ export default defineNuxtConfig({
     preset: "node",
     compatibilityDate: '2025-05-27',
     externals: {
-      inline: ['mysql2', 'pg', 'better-sqlite3', 'tedious', 'tarn', 'debug', 'bl', 'iconv-lite', 'sprintf-js']
+      inline: [],
+      external: ['sqlite3', 'mysql2', 'pg', 'tedious', 'tarn', 'debug', 'bl', 'iconv-lite', 'sprintf-js']
     }
   },
 
@@ -28,6 +29,9 @@ export default defineNuxtConfig({
     build: {
       sourcemap: false,
     },
+    optimizeDeps: {
+      exclude: ['sqlite3']
+    }
   },
 
   // 添加CSP头以允许CDN加载

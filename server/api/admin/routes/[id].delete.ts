@@ -1,4 +1,5 @@
 import { defineEventHandler, getRouterParam, createError } from "h3";
+import db from "~/server/utils/db";
 
 /**
  * 删除API路由
@@ -17,16 +18,13 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const env = event.context.cloudflare.env;
+    // 使用本地数据库实例而不是Cloudflare环境
 
     // 查询API是否存在
-    const existingRoute = await env.DB.prepare(
-      `
-      SELECT id FROM api_routes WHERE id = ?
-    `
-    )
-      .bind(id)
-      .first();
+    const existingRoute = await db.get(
+      `SELECT id FROM api_routes WHERE id = ?`,
+      [id]
+    );
 
     if (!existingRoute) {
       throw createError({
@@ -36,29 +34,23 @@ export default defineEventHandler(async (event) => {
     }
 
     // 删除API路由
-    const { success, error } = await env.DB.prepare(
-      `
-      DELETE FROM api_routes WHERE id = ?
-    `
-    )
-      .bind(id)
-      .run();
+    const result = await db.run(
+      `DELETE FROM api_routes WHERE id = ?`,
+      [id]
+    );
 
-    if (!success) {
+    if (!result || result.changes === 0) {
       throw createError({
         statusCode: 500,
-        statusMessage: `删除失败: ${error || "未知错误"}`,
+        statusMessage: `删除失败: 未能删除API路由`,
       });
     }
 
     // 清理相关的日志记录
-    await env.DB.prepare(
-      `
-      DELETE FROM api_logs WHERE route_id = ?
-    `
-    )
-      .bind(id)
-      .run();
+    await db.run(
+      `DELETE FROM api_logs WHERE route_id = ?`,
+      [id]
+    );
 
     return {
       success: true,

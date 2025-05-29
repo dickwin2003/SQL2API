@@ -59,9 +59,9 @@ export default defineEventHandler(async (event) => {
       const result = await db.run(
         `
         INSERT INTO api_routes 
-          (name, description, path, method, sql_query, params, is_public, require_auth) 
+          (name, description, path, method, sql_query, params, is_public, require_auth, db_conn, db_conn_name) 
         VALUES 
-          (?, ?, ?, ?, ?, ?, ?, ?)
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           body.name,
@@ -71,7 +71,9 @@ export default defineEventHandler(async (event) => {
           body.sqlQuery,
           JSON.stringify(body.params || {}),
           body.isPublic === true ? 1 : 0,
-          body.requireAuth === false ? 0 : 1
+          body.requireAuth === false ? 0 : 1,
+          JSON.stringify(body.db_conn),
+          body.db_conn_name
         ]
       );
 

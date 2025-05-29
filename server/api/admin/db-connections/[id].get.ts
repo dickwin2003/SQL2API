@@ -1,8 +1,8 @@
 import { defineEventHandler, getRouterParam, createError } from "h3";
-import db from "../../../utils/db";
+import { getDbConnById } from "../../../utils/db-manager";
 
 /**
- * 获取单个API路由详情
+ * 获取特定数据库连接详情
  */
 export default defineEventHandler(async (event) => {
   // 安全检查 - 这里应添加实际的认证检查
@@ -14,26 +14,27 @@ export default defineEventHandler(async (event) => {
     if (!id || isNaN(Number(id))) {
       throw createError({
         statusCode: 400,
-        statusMessage: "API ID无效",
+        statusMessage: "数据库连接ID无效",
       });
     }
 
-    // 查询单个API路由详情
-    const route = await db.get(
-      `SELECT * FROM api_routes WHERE id = ?`,
-      [id]
-    );
+    const dbConn = await getDbConnById(Number(id));
 
-    if (!route) {
+    if (!dbConn) {
       throw createError({
         statusCode: 404,
-        statusMessage: "API路由未找到",
+        statusMessage: "数据库连接不存在",
       });
     }
 
+    // 返回数据库连接信息，但隐藏敏感信息
     return {
       success: true,
-      route,
+      connection: {
+        ...dbConn,
+        // 返回带掩码的密码，防止密码泄露
+        password: dbConn.password ? "********" : "",
+      },
     };
   } catch (error: any) {
     if (error.statusCode) {

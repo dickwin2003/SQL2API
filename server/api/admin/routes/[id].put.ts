@@ -1,4 +1,5 @@
 import { defineEventHandler, readBody, getRouterParam, createError } from "h3";
+import db from "../../../utils/db";
 
 /**
  * 更新API路由
@@ -52,16 +53,11 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const env = event.context.cloudflare.env;
-
     // 查询API是否存在
-    const existingRoute = await env.DB.prepare(
-      `
-      SELECT id FROM api_routes WHERE id = ?
-    `
-    )
-      .bind(id)
-      .first();
+    const existingRoute = await db.get(
+      `SELECT id FROM api_routes WHERE id = ?`,
+      [id]
+    );
 
     if (!existingRoute) {
       throw createError({
@@ -71,14 +67,10 @@ export default defineEventHandler(async (event) => {
     }
 
     // 检查路径和方法组合的唯一性（排除当前记录）
-    const existingPathMethod = await env.DB.prepare(
-      `
-      SELECT id FROM api_routes 
-      WHERE path = ? AND method = ? AND id != ?
-    `
-    )
-      .bind(body.path, body.method, id)
-      .first();
+    const existingPathMethod = await db.get(
+      `SELECT id FROM api_routes WHERE path = ? AND method = ? AND id != ?`,
+      [body.path, body.method, id]
+    );
 
     if (existingPathMethod) {
       throw createError({
@@ -88,39 +80,44 @@ export default defineEventHandler(async (event) => {
     }
 
     // 更新API路由
-    const { success, error } = await env.DB.prepare(
-      `
-      UPDATE api_routes 
-      SET 
-        name = ?, 
-        description = ?, 
-        path = ?, 
-        method = ?, 
-        sql_query = ?, 
-        params = ?, 
-        is_public = ?, 
-        require_auth = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `
-    )
-      .bind(
-        body.name,
-        body.description || "",
-        body.path,
-        body.method,
-        body.sqlQuery,
-        typeof body.params === "object" ? JSON.stringify(body.params) : "{}",
-        body.isPublic === true ? 1 : 0,
-        body.requireAuth === false ? 0 : 1,
-        id
-      )
-      .run();
-
-    if (!success) {
+    try {
+      await db.run(
+        `UPDATE api_routes 
+        SET 
+          name = ?, 
+          description = ?, 
+          path = ?, 
+          method = ?, 
+          sql_query = ?, 
+          params = ?, 
+          is_public = ?, 
+          require_auth = ?,
+          db_conn = ?,
+          db_conn_name = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+        [
+          body.name,
+          body.description || "",
+          body.path,
+          body.method,
+          body.sqlQuery,
+          typeof body.params === "object" ? JSON.stringify(body.params) : "{}",
+          body.isPublic === true ? 1 : 0,
+          body.requireAuth === false ? 0 : 1,
+          typeof body.db_conn === "object" ? JSON.stringify(body.db_conn) : "{}",
+          body.db_conn_name,
+          id
+        ]
+      );
+      
+      // Success if we reach this point
+      const success = true;
+      const error = null;
+    } catch (dbError) {
       throw createError({
         statusCode: 500,
-        statusMessage: `数据库错误: ${error || "未知错误"}`,
+        statusMessage: `数据库错误: ${dbError.message || "未知错误"}`,
       });
     }
 

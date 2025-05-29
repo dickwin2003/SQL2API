@@ -13,34 +13,60 @@
         :rules="rules"
         ref="apiFormRef"
       >
-        <el-form-item label="API名称" prop="name">
-          <el-input v-model="apiForm.name" placeholder="输入API名称" />
-        </el-form-item>
-
-        <el-form-item label="描述" prop="description">
-          <el-input
-            v-model="apiForm.description"
-            type="textarea"
-            placeholder="API描述"
-          />
-        </el-form-item>
-
-        <el-form-item label="API路径" prop="path">
-          <el-input v-model="apiForm.path" placeholder="/data/users">
-            <template #prepend>/api</template>
-          </el-input>
-        </el-form-item>
-
-        <el-form-item label="HTTP方法" prop="method">
-          <el-select v-model="apiForm.method" placeholder="选择HTTP方法">
-            <el-option label="GET" value="GET" />
-            <el-option label="POST" value="POST" />
-            <el-option label="PUT" value="PUT" />
-            <el-option label="DELETE" value="DELETE" />
+        <!-- 数据库连接选择 (最重要的部分放在最上面) -->
+        <el-form-item label="数据库连接" prop="connectionId" class="important-field">
+          <el-select 
+            v-model="apiForm.connectionId" 
+            placeholder="选择数据库连接"
+            @change="handleConnectionChange"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="conn in connections"
+              :key="conn.id"
+              :label="`${conn.name} (${getDbTypeName(conn.db_type)})`"
+              :value="conn.id"
+            />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="SQL查询" prop="sqlQuery">
+        <!-- 两列布局的表单字段 -->
+        <div class="form-grid">
+          <div class="form-column">
+            <el-form-item label="API名称" prop="name">
+              <el-input v-model="apiForm.name" placeholder="输入API名称" />
+            </el-form-item>
+
+            <el-form-item label="API路径" prop="path">
+              <el-input v-model="apiForm.path" placeholder="/data/users">
+                <template #prepend>/api</template>
+              </el-input>
+            </el-form-item>
+          </div>
+
+          <div class="form-column">
+            <el-form-item label="描述" prop="description">
+              <el-input
+                v-model="apiForm.description"
+                type="textarea"
+                placeholder="API描述"
+                :rows="1"
+              />
+            </el-form-item>
+
+            <el-form-item label="HTTP方法" prop="method">
+              <el-select v-model="apiForm.method" placeholder="选择HTTP方法" style="width: 100%">
+                <el-option label="GET" value="GET" />
+                <el-option label="POST" value="POST" />
+                <el-option label="PUT" value="PUT" />
+                <el-option label="DELETE" value="DELETE" />
+              </el-select>
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- SQL查询编辑器 -->
+        <el-form-item label="SQL查询" prop="sqlQuery" class="sql-query-section">
           <div class="sql-form-item">
             <div class="sql-help-text">
               <i class="el-icon-info"></i>
@@ -190,6 +216,7 @@ const apiForm = reactive({
   description: "",
   path: "",
   method: "GET",
+  connectionId: null,
   sqlQuery: "SELECT * FROM users",
   params: [] as Array<{
     name: string;
@@ -217,6 +244,7 @@ const rules = reactive<FormRules>({
   ],
   method: [{ required: true, message: "请选择HTTP方法", trigger: "change" }],
   sqlQuery: [{ required: true, message: "请输入SQL查询", trigger: "blur" }],
+  connectionId: [{ required: true, message: "请选择数据库连接", trigger: "change" }],
 });
 
 // SQL编辑器相关
@@ -230,6 +258,49 @@ const isEditorInitialized = ref(false);
 
 // 监听器清理函数
 let editorCheckInterval: any = null;
+
+// 数据库连接相关
+const connections = ref([]);
+const loadingConnections = ref(false);
+
+// 获取数据库连接列表
+async function fetchConnections() {
+  loadingConnections.value = true;
+  try {
+    const response = await fetch('/api/admin/db-connections');
+    const data = await response.json();
+    
+    if (data.success) {
+      connections.value = data.connections.filter(conn => conn.is_active);
+    } else {
+      ElMessage.error(data.message || '获取数据库连接列表失败');
+    }
+  } catch (error) {
+    console.error('获取数据库连接列表出错:', error);
+    ElMessage.error('获取数据库连接列表失败');
+  } finally {
+    loadingConnections.value = false;
+  }
+}
+
+// 处理连接选择变化
+function handleConnectionChange() {
+  // 可以在这里添加连接变化后的处理逻辑
+  console.log('Selected connection:', apiForm.connectionId);
+}
+
+// 获取数据库类型名称
+function getDbTypeName(dbType) {
+  const dbTypeMap = {
+    'mysql': 'MySQL',
+    'postgresql': 'PostgreSQL',
+    'sqlserver': 'SQL Server',
+    'oracle': 'Oracle',
+    'sqlite': 'SQLite'
+  };
+  
+  return dbTypeMap[dbType] || dbType;
+}
 
 // 监听editMode和路由变化
 watch(
@@ -286,12 +357,26 @@ onMounted(async () => {
       ElMessage.error("编辑器加载失败，请刷新页面重试");
     }
   }
+
+  await fetchConnections();
 });
 
 // 监听编辑模式变化，更新页面标题
 watch(isEditing, () => {
   updatePageTitle();
 });
+
+// 监听数据库连接列表变化
+watch(connections, (newConnections) => {
+  // 如果已经有缓存的API数据且有db_conn_name，则尝试设置连接ID
+  if (cachedApiData.value?.db_conn_name && newConnections.length > 0 && !apiForm.connectionId) {
+    const connection = newConnections.find(conn => conn.name === cachedApiData.value.db_conn_name);
+    if (connection) {
+      apiForm.connectionId = connection.id;
+      console.log(`连接加载后设置数据库连接ID: ${connection.id} (${cachedApiData.value.db_conn_name})`);
+    }
+  }
+}, { immediate: true });
 
 // 更新页面标题
 const updatePageTitle = () => {
@@ -439,6 +524,22 @@ const fetchApiDetails = async (id: number) => {
       apiForm.isPublic = !!api.is_public;
       apiForm.requireAuth = !!api.require_auth;
       apiForm.sqlQuery = api.sql_query || "SELECT * FROM users"; // 确保更新表单数据中的SQL查询
+      
+      // 设置数据库连接ID
+      if (api.db_conn_name && connections.value.length > 0) {
+        // 根据db_conn_name查找对应的连接ID
+        const connection = connections.value.find(conn => conn.name === api.db_conn_name);
+        if (connection) {
+          apiForm.connectionId = connection.id;
+          console.log(`已设置数据库连接ID: ${connection.id} (${api.db_conn_name})`);
+        } else {
+          console.warn(`未找到名为 ${api.db_conn_name} 的数据库连接`);
+        }
+      } else if (api.connection_id) {
+        // 如果有connection_id字段，直接使用
+        apiForm.connectionId = api.connection_id;
+        console.log(`已设置数据库连接ID: ${api.connection_id}`);
+      }
 
       // 更新SQL编辑器内容（如果编辑器已初始化）
       if (sqlEditor.value && api.sql_query) {
@@ -505,15 +606,33 @@ const submitForm = async () => {
           apiForm.sqlQuery = sqlEditor.value.getValue();
         }
 
-        // 准备要提交的数据
+        // 获取选中的数据库连接信息
+        const selectedConnection = connections.value.find(
+          (conn) => conn.id === apiForm.connectionId
+        );
+
+        if (!selectedConnection) {
+          throw new Error("请选择数据库连接");
+        }
+
+        // 构建要提交的API数据
         const apiData = {
           name: apiForm.name,
           description: apiForm.description,
-          path: apiForm.path.startsWith("/api/")
-            ? apiForm.path
-            : `/api/${apiForm.path}`,
+          path: apiForm.path.startsWith('/api/') ? apiForm.path : `/api/${apiForm.path}`,
           method: apiForm.method,
+          connectionId: apiForm.connectionId,
           sqlQuery: apiForm.sqlQuery,
+          // 添加数据库连接信息
+          db_conn: {
+            host: selectedConnection.host,
+            port: selectedConnection.port,
+            username: selectedConnection.username,
+            password: selectedConnection.password,
+            database_name: selectedConnection.database_name,
+            db_type: selectedConnection.db_type
+          },
+          db_conn_name: selectedConnection.name,
           params:
             apiForm.params.length > 0
               ? apiForm.params.reduce((obj: any, item) => {
@@ -610,6 +729,27 @@ const resetForm = () => {
   flex: 1;
 }
 
+/* 两列布局样式 */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.form-column {
+  min-width: 0; /* 防止内容溢出 */
+}
+
+/* 重要字段样式 */
+.important-field {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
 .editor-container {
   border: 1px solid #dcdfe6;
   border-radius: 4px;
@@ -641,6 +781,12 @@ const resetForm = () => {
   justify-content: center;
   background-color: #f5f7fa;
   padding: 10px;
+}
+
+.sql-query-section {
+  margin-top: 12px;
+  padding-top: 20px;
+  border-top: 1px dashed #e9ecef;
 }
 
 .sql-form-item {

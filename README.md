@@ -1,154 +1,160 @@
-# SQL to API - Cloudflare Worker 应用
+# SQL2API - 数据库到API转换工具
 
-这是一个基于 Cloudflare Workers 和 D1 数据库的应用，可以通过编写 SQL 查询快速创建 REST API 接口。
+这是一个基于Nuxt.js的应用，可以通过配置数据库连接和编写SQL查询快速创建REST API接口。
 
-## 在线预览
+## 功能特性
 
-您可以通过以下链接访问在线演示版本：
-[在线演示版本](https://123406.xyz)
-
-## 特点
-
-- **简单易用**: 只需编写 SQL 语句，即可发布 REST API
-- **高性能**: 基于 Cloudflare 全球网络，快速响应请求
-- **安全可靠**: 内置 SQL 注入防护，保障数据安全
-- **零后端代码**: 无需编写后端代码，直接从数据库到 API
+- **多数据库支持**: 支持MySQL、Oracle等多种数据库连接
+- **SQL转API**: 通过编写SQL语句自动生成REST API
+- **API管理**: 创建、编辑、删除API接口
+- **API测试**: 内置API测试工具，方便调试
+- **调用日志**: 记录API调用历史，便于排查问题
+- **表结构管理**: 可视化查看和管理数据库表结构
 
 ## 系统截图
 
-### 登录
-
+### 登录界面
 ![登录](./images/登录页面.png)
 
 ### 首页
-
 ![首页](./images/首页.png)
 
-### 创建 API 页面
-
+### 创建API
 ![创建API页面](./images/创建API页面.png)
 
-### 表管理页面
-
+### 表管理
 ![表管理页面](./images/表管理.png)
 
-### API 列表页面
-
+### API列表
 ![API列表页面](./images/API列表页面.png)
 
-### API 测试工具页面
-
+### API测试
 ![API测试工具页面](./images/API测试工具页面.png)
 
-### API 调用日志页面
-
+### 调用日志
 ![API调用日志页面](./images/API调用日志页面.png)
 
-### 使用文档页面
-
-![使用文档页面](./images/使用文档页面.png)
-
-## 开始使用
+## 快速开始
 
 ### 前提条件
 
-- [Node.js](https://nodejs.org/) (v18 或更高版本)
+- [Node.js](https://nodejs.org/) (v18或更高版本)
 - [pnpm](https://pnpm.io/) 包管理器
-- [Cloudflare 账号](https://dash.cloudflare.com/sign-up)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+- 可用的数据库服务(MySQL/Oracle等)
 
 ### 安装
 
 ```bash
 # 克隆项目
-git clone <repository-url>
-cd db-admin-app
+git clone https://github.com/your-repo/SQL2API.git
+cd SQL2API
 
 # 安装依赖
 pnpm install
 ```
 
-### 本地开发
+### 配置数据库连接
+
+1. 复制`db-config.ts.example`为`db-config.ts`
+2. 编辑`db-config.ts`文件，添加您的数据库连接配置
+
+```typescript
+export default {
+  connections: [
+    {
+      name: '生产数据库',
+      type: 'mysql',
+      host: 'localhost',
+      port: 3306,
+      user: 'root',
+      password: 'password',
+      database: 'my_db'
+    }
+  ]
+}
+```
+
+### 运行项目
 
 ```bash
 # 开发模式
 pnpm dev
 
-# 预览模式（使用Wrangler）
-pnpm preview
+# 生产模式
+pnpm build
+pnpm start
 ```
 
-### 创建 D1 数据库
+## 使用指南
 
-```bash
-# 登录Cloudflare
-wrangler login
+### 1. 添加数据库连接
 
-# 创建D1数据库
-wrangler d1 create sql_api_db
+1. 登录系统后，进入"数据库连接"页面
+2. 点击"添加连接"按钮
+3. 填写数据库连接信息并保存
 
-# 更新wrangler.jsonc中的database_id为刚创建的数据库ID
+### 2. 创建API接口
 
-# 应用数据库迁移
-wrangler d1 execute sql_api_db --file=./migrations/0000_initial_schema.sql
+1. 进入"创建API"页面
+2. 填写API基本信息(名称、路径、描述等)
+3. 选择目标数据库连接
+4. 编写SQL查询语句
+5. 定义参数(可选)
+6. 点击"创建"按钮生成API
 
-wrangler d1 execute sql_api_db --file=./migrations/0001_table_schema.sql
-```
+### 3. 测试API
 
-### 部署到 Cloudflare
+1. 进入"API测试"页面
+2. 选择要测试的API
+3. 填写参数(如果有)
+4. 点击"发送"按钮测试API
+5. 查看返回结果
 
-```bash
-# 构建并部署
-pnpm deploy
-```
+## API参数定义
 
-## 使用方法
-
-1. 访问应用首页
-2. 点击"API 管理"创建新的 API
-3. 填写 API 基本信息并编写 SQL 查询
-4. 提交表单，创建 API 端点
-5. 使用"API 测试"功能验证 API
-
-## API 参数
-
-在创建 API 时，可以定义参数以动态替换 SQL 中的值。参数使用`:参数名`的形式在 SQL 中指定，例如：
+在SQL中使用`:参数名`的形式定义参数，例如：
 
 ```sql
-SELECT * FROM users WHERE id = :userId
+SELECT * FROM users WHERE id = :userId AND status = :status
 ```
 
-然后在参数定义部分添加`userId`参数，并指定类型和是否必填。
-
-## 安全注意事项
-
-- 默认禁用了 DROP 和 ALTER SQL 操作以保护数据库
-- 建议在生产环境中添加适当的认证机制
-- 公开 API 无需认证，请谨慎使用
+然后在参数定义部分添加对应参数，指定类型和是否必填。
 
 ## 项目结构
 
 ```
-db-admin-app/
+SQL2API/
 ├── components/          # 前端组件
+├── data/                # 本地SQLite数据库文件
 ├── migrations/          # 数据库迁移脚本
-├── pages/               # 页面组件
-│   ├── index.vue        # 首页
-│   ├── api-manager.vue  # API管理页面
-│   └── api-tester.vue   # API测试页面
+├── pages/               # 页面路由
+│   ├── api-list.vue     # API列表
+│   ├── api-logs.vue     # API日志
+│   ├── api-tester.vue   # API测试
+│   ├── create-api.vue   # 创建API
+│   ├── db-connections.vue # 数据库连接管理
+│   └── table-management.vue # 表管理
 ├── plugins/             # Nuxt插件
 ├── public/              # 静态资源
-├── server/              # 服务器端代码
-│   └── api/             # API路由处理
-├── .nuxt/               # Nuxt构建文件
+├── server/              # 服务端API
+│   ├── api/             # API路由
+│   ├── plugins/         # 服务端插件
+│   └── utils/           # 工具函数
 ├── app.vue              # 应用入口
+├── db-config.ts         # 数据库连接配置
 ├── nuxt.config.ts       # Nuxt配置
-├── package.json         # 项目依赖
-└── wrangler.jsonc       # Cloudflare配置
+└── package.json         # 项目依赖
 ```
 
 ## 技术栈
 
-- **前端**: Vue 3, Nuxt 3, Element Plus, Monaco Editor
-- **后端**: Cloudflare Workers, D1 数据库
-- **构建工具**: Vite, Wrangler
+- **前端**: Vue 3, Nuxt 3, Element Plus
+- **后端**: Node.js, SQLite(元数据存储)
+- **数据库驱动**: mysql2, oracledb
+- **构建工具**: Vite
+
+## 注意事项
+
+1. 生产环境请确保添加适当的认证机制
+2. 敏感数据库信息请妥善保管
+3. 复杂查询建议添加适当的索引优化性能

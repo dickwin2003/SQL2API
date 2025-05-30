@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event);
 
     // 分页参数
-    const limit = Number(query.limit) || 50; // 默认每页50条
+    const limit = Number(query.limit) || 10; // 默认每页10条
     const offset = Number(query.offset) || 0;
 
     // 表ID筛选（可选）
@@ -53,12 +53,7 @@ export default defineEventHandler(async (event) => {
     `;
 
     // 执行查询
-    const queryParams = [...params];
-    if (params.length > 0) {
-      queryParams.push(limit, offset);
-    } else {
-      queryParams.push(limit, offset);
-    }
+    const queryParams = [...params, limit, offset];
     
     const routes = await db.all(routesQuery, queryParams);
 

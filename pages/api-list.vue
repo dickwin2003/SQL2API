@@ -420,7 +420,7 @@ const requestDetails = ref("");
 const tablesList = ref<any[]>([]);
 const selectedTableId = ref<number | null>(null);
 const currentPage = ref(1);
-const pageSize = ref(20);
+const pageSize = ref(10);
 const apiTotal = ref(0);
 const paginationMeta = ref<any>({});
 
@@ -464,10 +464,20 @@ onMounted(() => {
 const fetchApiList = async () => {
   loading.value = true;
   try {
-    const response = await fetch('/api/admin/routes');
+    const params = new URLSearchParams();
+    params.append('limit', pageSize.value.toString());
+    params.append('offset', ((currentPage.value - 1) * pageSize.value).toString());
+    
+    if (selectedTableId.value) {
+      params.append('tableId', selectedTableId.value.toString());
+    }
+
+    const response = await fetch(`/api/admin/routes?${params.toString()}`);
     const data = await response.json();
     if (data.success) {
       apiList.value = data.routes;
+      apiTotal.value = data.meta.total;
+      paginationMeta.value = data.meta;
     } else {
       ElMessage.error(data.message || '获取API列表失败');
     }
@@ -732,10 +742,10 @@ const handlePageChange = (page: number) => {
   fetchApiList();
 };
 
-// 处理每页数量变化
+// 处理每页条数变化
 const handleSizeChange = (size: number) => {
   pageSize.value = size;
-  currentPage.value = 1; // 重置为第一页
+  currentPage.value = 1;
   fetchApiList();
 };
 

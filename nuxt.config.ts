@@ -2,6 +2,11 @@
 export default defineNuxtConfig({
   devtools: { enabled: true },
 
+  // 服务器配置
+  server: {
+    port: 3001
+  },
+
   // 运行时配置，用于访问环境变量
   runtimeConfig: {
     // 私有配置（仅在服务端可用）
@@ -21,6 +26,9 @@ export default defineNuxtConfig({
     externals: {
       inline: [],
       external: ['sqlite3', 'mysql2', 'pg', 'tedious', 'tarn', 'debug', 'bl', 'iconv-lite', 'sprintf-js']
+    },
+    devServer: {
+      port: 3001
     }
   },
 

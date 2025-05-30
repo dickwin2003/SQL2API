@@ -11,6 +11,7 @@
               @click="fetchApiList"
               :icon="Refresh"
               size="small"
+              :loading="loading"
             >
               刷新
             </el-button>
@@ -423,6 +424,9 @@ const pageSize = ref(20);
 const apiTotal = ref(0);
 const paginationMeta = ref<any>({});
 
+// 加在 script setup 顶部
+const loading = ref(false);
+
 // 表分组和筛选
 const groupedApiList = computed(() => {
   if (!apiList.value.length) return {};
@@ -458,44 +462,20 @@ onMounted(() => {
 
 // 获取API列表
 const fetchApiList = async () => {
+  loading.value = true;
   try {
-    // 构建请求参数
-    const params = new URLSearchParams();
-    params.append("limit", pageSize.value.toString());
-    params.append(
-      "offset",
-      ((currentPage.value - 1) * pageSize.value).toString()
-    );
-
-    if (selectedTableId.value) {
-      params.append("tableId", selectedTableId.value.toString());
-    }
-
-    // 从服务器获取API列表
-    const response = await fetch(`/api/admin/routes?${params.toString()}`);
-
-    if (!response.ok) {
-      const error = (await response.json()) as { statusMessage?: string };
-      throw new Error(error.statusMessage || "获取API列表失败");
-    }
-
-    const data = (await response.json()) as {
-      success: boolean;
-      routes: any[];
-      tables: any[];
-      meta: any;
-    };
-
-    if (data.success && Array.isArray(data.routes)) {
+    const response = await fetch('/api/admin/routes');
+    const data = await response.json();
+    if (data.success) {
       apiList.value = data.routes;
-      tablesList.value = data.tables || [];
-      paginationMeta.value = data.meta || {};
-      apiTotal.value = data.meta?.total || 0;
     } else {
-      throw new Error("获取API列表返回格式错误");
+      ElMessage.error(data.message || '获取API列表失败');
     }
-  } catch (error: any) {
-    ElMessage.error(error.message || "获取API列表失败");
+  } catch (error) {
+    console.error('获取API列表失败:', error);
+    ElMessage.error('获取API列表失败');
+  } finally {
+    loading.value = false;
   }
 };
 

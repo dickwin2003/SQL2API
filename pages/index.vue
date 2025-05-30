@@ -33,7 +33,7 @@
                         ><el-icon-lightning
                       /></el-icon>
                       <h4>高性能</h4>
-                      <p>基于Cloudflare全球网络，快速响应请求</p>
+                      <p>基于全球网络，快速响应请求</p>
                     </el-card>
                   </el-col>
                   <el-col :span="8">

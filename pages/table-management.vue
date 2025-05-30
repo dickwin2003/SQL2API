@@ -48,7 +48,7 @@
                 placeholder="搜索表名"
                 clearable
                 style="width: 200px; margin-right: 10px;"
-                @input="filterTables"
+                @input="filterTableList"
               >
                 <template #prefix>
                   <el-icon><Search /></el-icon>
@@ -72,7 +72,19 @@
         <div v-else>
           <el-tabs v-model="activeTabType">
             <el-tab-pane label="表" name="table">
-              <el-table :data="filteredTables" style="width: 100%">
+              <el-form :inline="true" :model="tableFilterForm" class="filter-form">
+                <el-form-item label="表名">
+                  <el-input v-model="tableFilterForm.name" placeholder="输入表名" clearable />
+                </el-form-item>
+                <el-form-item label="注释">
+                  <el-input v-model="tableFilterForm.comment" placeholder="输入注释" clearable />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="filterTableList">查询</el-button>
+                  <el-button @click="resetTableFilter">重置</el-button>
+                </el-form-item>
+              </el-form>
+              <el-table :data="pagedTables" style="width: 100%">
                 <el-table-column prop="name" label="表名" min-width="200" />
                 <el-table-column prop="rows" label="行数" width="100" />
                 <el-table-column prop="size" label="大小" width="100" />
@@ -108,9 +120,31 @@
                   </template>
                 </el-table-column>
               </el-table>
+              <el-pagination
+                v-model:current-page="currentPage"
+                v-model:page-size="pageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                layout="total, sizes, prev, pager, next"
+                :total="filteredTables.length"
+                @size-change="handleTableSizeChange"
+                @current-change="handleCurrentChange"
+                style="margin-top: 20px;"
+              />
             </el-tab-pane>
             <el-tab-pane label="视图" name="view">
-              <el-table :data="filteredViews" style="width: 100%">
+              <el-form :inline="true" :model="viewFilterForm" class="filter-form">
+                <el-form-item label="视图名">
+                  <el-input v-model="viewFilterForm.name" placeholder="输入视图名" clearable />
+                </el-form-item>
+                <el-form-item label="注释">
+                  <el-input v-model="viewFilterForm.comment" placeholder="输入注释" clearable />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="filterViews">查询</el-button>
+                  <el-button @click="resetViewFilter">重置</el-button>
+                </el-form-item>
+              </el-form>
+              <el-table :data="pagedViews" style="width: 100%">
                 <el-table-column prop="name" label="视图名" min-width="200" />
                 <el-table-column prop="create_time" label="创建时间" width="180">
                   <template #default="scope">
@@ -144,6 +178,16 @@
                   </template>
                 </el-table-column>
               </el-table>
+              <el-pagination
+                v-model:current-page="viewCurrentPage"
+                v-model:page-size="viewPageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                layout="total, sizes, prev, pager, next"
+                :total="filteredViews.length"
+                @size-change="handleViewSizeChange"
+                @current-change="handleViewCurrentChange"
+                style="margin-top: 20px;"
+              />
             </el-tab-pane>
           </el-tabs>
         </div>
@@ -220,7 +264,7 @@
           :current-page="currentPage"
           :page-sizes="[10, 20, 50, 100]"
           @current-change="handlePageChange"
-          @size-change="handleSizeChange"
+          @size-change="handleTableSizeChange"
         />
       </div>
     </el-dialog>
@@ -365,12 +409,26 @@ const apiForm = reactive({
   method: 'GET',
   sql: '',
   params: [],
-  isPublic: false,
+  isPublic: true,
   requireAuth: true,
   description: ''
 });
 const savingApi = ref(false);
 const testingApi = ref(false);
+
+// 分页相关变量
+const viewCurrentPage = ref(1);
+const viewPageSize = ref(10);
+
+// 条件查询表单
+const tableFilterForm = ref({
+  name: '',
+  comment: ''
+});
+const viewFilterForm = ref({
+  name: '',
+  comment: ''
+});
 
 // 获取数据库连接列表
 async function fetchConnections() {
@@ -424,8 +482,10 @@ async function fetchTables() {
 }
 
 // 过滤表和视图
-function filterTables() {
-  // 过滤逻辑在计算属性中实现
+function filterTableList() {
+  // 这里可以根据 tableFilterForm 的值过滤 filteredTables
+  // 例如：filteredTables.value = tables.value.filter(t => t.name.includes(tableFilterForm.value.name) && t.comment.includes(tableFilterForm.value.comment));
+  currentPage.value = 1;
 }
 
 // 查看表结构
@@ -499,12 +559,11 @@ function handlePageChange(page) {
   executeQuery();
 }
 
-// 处理每页显示数量变化
-function handleSizeChange(size) {
-  pageSize.value = size;
+// 将第二个 handleSizeChange 重命名为 handleTableSizeChange
+const handleTableSizeChange = (val) => {
+  pageSize.value = val;
   currentPage.value = 1;
-  executeQuery();
-}
+};
 
 // 从表生成API
 async function createApiFromTable(table) {
@@ -517,7 +576,7 @@ async function createApiFromTable(table) {
   apiForm.method = 'GET';
   apiForm.sql = `SELECT * FROM ${table.name} WHERE 1=1`;
   apiForm.params = [];
-  apiForm.isPublic = false;
+  apiForm.isPublic = true;
   apiForm.requireAuth = true;
   apiForm.description = `API for ${table.name} table`;
   
@@ -574,48 +633,51 @@ function removeParam(index) {
 
 // 保存API
 async function saveApi() {
-  savingApi.value = true;
   try {
+    // 获取当前选中的数据库连接信息
+    const connection = connections.value.find(conn => conn.id === selectedConnectionId.value);
+    if (!connection) {
+      ElMessage.error('未找到数据库连接信息');
+      return;
+    }
+
     const response = await fetch('/api/admin/routes', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         name: apiForm.name,
+        description: apiForm.description,
         path: apiForm.path,
         method: apiForm.method,
-        sql_query: apiForm.sql,
-        params: JSON.stringify(apiForm.params),
-        is_public: apiForm.isPublic,
-        require_auth: apiForm.requireAuth,
-        description: apiForm.description,
-        connection_id: selectedConnectionId.value
-      })
+        connectionId: selectedConnectionId.value,
+        sqlQuery: apiForm.sql,
+        params: apiForm.params,
+        isPublic: apiForm.isPublic,
+        requireAuth: apiForm.requireAuth,
+        db_conn: {
+          host: connection.host,
+          port: connection.port,
+          username: connection.username,
+          database_name: connection.database_name,
+          db_type: connection.db_type
+        },
+        db_conn_name: connection.name
+      }),
     });
-    
+
     const data = await response.json();
-    
     if (data.success) {
       ElMessage.success('API创建成功');
       apiDialogVisible.value = false;
-      
-      // 询问是否跳转到API列表
-      ElMessageBox.confirm('API创建成功，是否跳转到API列表页面？', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'info'
-      }).then(() => {
-        router.push('/api-list');
-      }).catch(() => {});
+      // 刷新API列表
+      loadTableApis(selectedTable.value);
     } else {
-      ElMessage.error(data.message || '创建API失败');
+      ElMessage.error(data.message || '创建失败');
     }
   } catch (error) {
-    console.error('创建API出错:', error);
-    ElMessage.error('创建API失败');
-  } finally {
-    savingApi.value = false;
+    console.error('保存API失败:', error);
   }
 }
 
@@ -658,32 +720,72 @@ async function testApi() {
 
 // 计算属性：过滤后的表
 const filteredTables = computed(() => {
-  if (!searchQuery.value) {
-    return tables.value.filter(table => table.type === 'table');
-  }
-  
-  const query = searchQuery.value.toLowerCase();
-  return tables.value.filter(table => 
-    table.type === 'table' && table.name.toLowerCase().includes(query)
-  );
+  return tables.value.filter(table => {
+    if (table.type !== 'table') return false;
+    const nameMatch = !tableFilterForm.value.name || table.name.toLowerCase().includes(tableFilterForm.value.name.toLowerCase());
+    const commentMatch = !tableFilterForm.value.comment || (table.comment || '').toLowerCase().includes(tableFilterForm.value.comment.toLowerCase());
+    return nameMatch && commentMatch;
+  });
 });
 
 // 计算属性：过滤后的视图
 const filteredViews = computed(() => {
-  if (!searchQuery.value) {
-    return tables.value.filter(table => table.type === 'view');
-  }
-  
-  const query = searchQuery.value.toLowerCase();
-  return tables.value.filter(table => 
-    table.type === 'view' && table.name.toLowerCase().includes(query)
-  );
+  return tables.value.filter(table => {
+    if (table.type !== 'view') return false;
+    const nameMatch = !viewFilterForm.value.name || table.name.toLowerCase().includes(viewFilterForm.value.name.toLowerCase());
+    const commentMatch = !viewFilterForm.value.comment || (table.comment || '').toLowerCase().includes(viewFilterForm.value.comment.toLowerCase());
+    return nameMatch && commentMatch;
+  });
 });
+
+// 计算属性：分页后的表数据
+const pagedTables = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return filteredTables.value.slice(start, end);
+});
+
+// 计算属性：分页后的视图数据
+const pagedViews = computed(() => {
+  const start = (viewCurrentPage.value - 1) * viewPageSize.value;
+  const end = start + viewPageSize.value;
+  return filteredViews.value.slice(start, end);
+});
+
+// 分页事件处理
+const handleCurrentChange = (val) => {
+  currentPage.value = val;
+};
+const handleViewSizeChange = (val) => {
+  viewPageSize.value = val;
+  viewCurrentPage.value = 1;
+};
+const handleViewCurrentChange = (val) => {
+  viewCurrentPage.value = val;
+};
+
+// 条件查询方法
+const resetTableFilter = () => {
+  tableFilterForm.value = { name: '', comment: '' };
+  filterTableList();
+};
+
+const filterViews = () => {
+  // 这里可以根据 viewFilterForm 的值过滤 filteredViews
+  // 例如：filteredViews.value = views.value.filter(v => v.name.includes(viewFilterForm.value.name) && v.comment.includes(viewFilterForm.value.comment));
+  viewCurrentPage.value = 1;
+};
+const resetViewFilter = () => {
+  viewFilterForm.value = { name: '', comment: '' };
+  filterViews();
+};
 
 // 获取数据库类型名称
 function getDbTypeName(dbType) {
   const dbTypeMap = {
     'mysql': 'MySQL',
+    'mariadb': 'MariaDB',
+    'mariadb10': 'MariaDB 10',
     'postgresql': 'PostgreSQL',
     'sqlserver': 'SQL Server',
     'oracle': 'Oracle',
@@ -697,6 +799,8 @@ function getDbTypeName(dbType) {
 function getDbTypeTagType(dbType) {
   const typeMap = {
     'mysql': '',
+    'mariadb': '',
+    'mariadb10': '',
     'postgresql': 'success',
     'sqlserver': 'warning',
     'oracle': 'danger',
@@ -772,5 +876,9 @@ onMounted(async () => {
   border-radius: 4px;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.filter-form {
+  margin-bottom: 20px;
 }
 </style>

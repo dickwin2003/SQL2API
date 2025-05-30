@@ -78,6 +78,8 @@ export async function getDatabaseTables(connection: DbConnection): Promise<any[]
     // 根据数据库类型选择不同的查询方式
     switch (connection.db_type.toLowerCase()) {
       case 'mysql':
+      case 'mariadb':
+      case 'mariadb10':
         return await getMySqlTables(connection);
       case 'postgresql':
         return await getPostgreSqlTables(connection);
@@ -107,6 +109,8 @@ export async function getTableStructure(connection: DbConnection, tableName: str
     // 根据数据库类型选择不同的查询方式
     switch (connection.db_type.toLowerCase()) {
       case 'mysql':
+      case 'mariadb':
+      case 'mariadb10':
         return await getMySqlTableStructure(connection, tableName);
       case 'postgresql':
         return await getPostgreSqlTableStructure(connection, tableName);
@@ -314,7 +318,7 @@ async function testMySqlConnection(connection: DbConnection): Promise<TestConnec
         SELECT 
           table_name AS name, 
           'table' AS type,
-          table_rows AS rows,
+          table_rows AS row_count,
           ROUND((data_length + index_length) / 1024) AS size_kb,
           create_time,
           table_comment AS comment
@@ -333,7 +337,7 @@ async function testMySqlConnection(connection: DbConnection): Promise<TestConnec
         SELECT 
           table_name AS name, 
           'view' AS type,
-          NULL AS rows,
+          NULL AS row_count,
           0 AS size_kb,
           create_time,
           table_comment AS comment
@@ -348,7 +352,7 @@ async function testMySqlConnection(connection: DbConnection): Promise<TestConnec
       const result = [...(tables as any[]), ...(views as any[])].map(item => ({
         name: item.name,
         type: item.type,
-        rows: item.rows !== null ? item.rows : 0,
+        rows: item.row_count !== null ? item.row_count : 0,
         size: item.size_kb ? `${item.size_kb} KB` : '-',
         create_time: item.create_time ? new Date(item.create_time).toISOString() : new Date().toISOString(),
         comment: item.comment || ''
@@ -618,10 +622,10 @@ async function testPostgreSqlConnection(connection: DbConnection): Promise<TestC
       SELECT 
         c.relname AS name,
         'table' AS type,
-        pg_stat_get_live_tuples(c.oid) AS rows,
-        pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
-        to_char(COALESCE(pg_stat_file('base/'||current_database()::oid||'/'||c.relfilenode::text)::json->>'modification', null)::timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS create_time,
-        d.description AS comment
+        COALESCE(pg_stat_get_live_tuples(c.oid)::bigint, 0) AS rows,
+        COALESCE(pg_size_pretty(pg_total_relation_size(c.oid)), '-') AS size,
+        CURRENT_TIMESTAMP::text AS create_time,
+        COALESCE(d.description, '') AS comment
       FROM 
         pg_class c
       LEFT JOIN 
@@ -640,10 +644,10 @@ async function testPostgreSqlConnection(connection: DbConnection): Promise<TestC
       SELECT 
         c.relname AS name,
         'view' AS type,
-        NULL AS rows,
-        NULL AS size,
-        to_char(COALESCE(pg_stat_file('base/'||current_database()::oid||'/'||c.relfilenode::text)::json->>'modification', null)::timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS create_time,
-        d.description AS comment
+        0 AS rows,
+        '-' AS size,
+        CURRENT_TIMESTAMP::text AS create_time,
+        COALESCE(d.description, '') AS comment
       FROM 
         pg_class c
       LEFT JOIN 
@@ -660,17 +664,25 @@ async function testPostgreSqlConnection(connection: DbConnection): Promise<TestC
     const tablesResult = await client.query(tablesQuery);
     const viewsResult = await client.query(viewsQuery);
     
-    // 合并表和视图结果
-    const result = [...tablesResult.rows, ...viewsResult.rows].map(item => ({
-      name: item.name,
-      type: item.type,
-      rows: item.rows || 0,
-      size: item.size || '-',
-      create_time: item.create_time || new Date().toISOString(),
-      comment: item.comment || ''
+    const tables = tablesResult.rows.map((row: any) => ({
+      name: row.name,
+      type: row.type,
+      rows: row.rows,
+      size: row.size,
+      create_time: row.create_time,
+      comment: row.comment
     }));
-    
-    return result;
+
+    const views = viewsResult.rows.map((row: any) => ({
+      name: row.name,
+      type: row.type,
+      rows: row.rows,
+      size: row.size,
+      create_time: row.create_time,
+      comment: row.comment
+    }));
+
+    return [...tables, ...views];
   } catch (error: any) {
     console.error(`获取PostgreSQL表列表失败:`, error);
     return [];

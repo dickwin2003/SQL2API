@@ -3,12 +3,12 @@
     <p>
       © 2025 SQL to API Platform | Powered by
       <a
-        href="https://github.com/123xiao/Cloudflare-SQL-to-API"
+        href="https://github.com/dickwin2003/SQL2API"
         target="_blank"
         class="github-link"
       >
         <el-icon class="github-icon"><Promotion /></el-icon>
-        Cloudflare-SQL-to-API
+        SQL2API
       </a>
     </p>
   </el-footer>

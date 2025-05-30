@@ -100,10 +100,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="is_active" label="状态" width="80">
+        <el-table-column prop="connection_status" label="状态" width="80">
           <template #default="scope">
-            <el-tag :type="scope.row.is_active ? 'success' : 'info'">
-              {{ scope.row.is_active ? "激活" : "禁用" }}
+            <el-tag :type="scope.row.connection_status === 'success' ? 'success' : 'danger'">
+              {{ scope.row.connection_status === 'success' ? '成功' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -193,7 +193,7 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
-            {{ selectedConnection.is_active ? "激活" : "禁用" }}
+            {{ selectedConnection.connection_status === 'success' ? "激活" : "禁用" }}
           </el-descriptions-item>
           <el-descriptions-item label="连接字符串" v-if="selectedConnection.connection_string">
             {{ selectedConnection.connection_string }}
@@ -334,6 +334,13 @@
 import { ref, onMounted, reactive } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Refresh, Plus, Edit, Connection } from '@element-plus/icons-vue';
+import { ZINDEX_INJECTION_KEY } from 'element-plus';
+
+// 提供 z-index
+const app = getCurrentInstance()?.appContext.app;
+if (app) {
+  app.provide(ZINDEX_INJECTION_KEY, { current: 0 });
+}
 
 // 数据库连接列表数据
 const connectionsList = ref([]);
@@ -512,6 +519,11 @@ async function testConnection(connection) {
     };
     
     testResultVisible.value = true;
+    
+    // 如果测试失败，刷新连接列表以更新状态
+    if (!data.success) {
+      await fetchConnections();
+    }
   } catch (error) {
     console.error('测试连接出错:', error);
     testResult.value = {
@@ -520,6 +532,9 @@ async function testConnection(connection) {
       details: error.toString()
     };
     testResultVisible.value = true;
+    
+    // 发生错误时也刷新连接列表
+    await fetchConnections();
   } finally {
     loadingTestId.value = null;
   }

@@ -2,9 +2,9 @@
  * API Database Connection Utility
  * 用于API路由执行数据库查询的工具函数
  */
-import mysql from 'mysql2/promise';
+import mysql, { PoolOptions } from 'mysql2/promise';
 import pg from 'pg';
-import { Connection, Request, TYPES } from 'tedious';
+import { Connection, Request, TYPES, ConnectionConfiguration } from 'tedious';
 import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import { getDbConnFromEnv } from './db-connection';
@@ -15,7 +15,7 @@ import fs from 'fs';
 // import net from 'net';
 
 // MySQL连接池缓存
-// 使用Map存储不同数据库的连接池，键为“host:port:database”
+// 使用Map存储不同数据库的连接池，键为"host:port:database"
 // 这样可以避免频繁创建和关闭连接
 // 注意：在生产环境中，可能需要定期清理连接池或实现更复杂的连接池管理
 // 这里使用简单的实现方式仅用于演示
@@ -31,6 +31,23 @@ interface DbConnInfo {
   database_name: string;
   db_type: string;
   connection_string?: string;
+}
+
+// MySQL连接池配置接口
+interface MySqlPoolConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+  waitForConnections: boolean;
+  connectionLimit: number;
+  queueLimit: number;
+  enableKeepAlive: boolean;
+  keepAliveInitialDelay: number;
+  connectTimeout: number;
+  maxRetries: number;
+  ssl?: boolean | { rejectUnauthorized: boolean };
 }
 
 /**
@@ -68,7 +85,7 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
       console.log('创建新的MySQL连接池:', poolKey);
       
       // 解析connection_string中的额外配置
-      let extraConfig = {};
+      let extraConfig: Record<string, any> = {};
       if (dbConn.connection_string) {
         try {
           extraConfig = JSON.parse(dbConn.connection_string);
@@ -79,7 +96,7 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
       }
 
       // 创建新的连接池
-      const poolConfig: any = {
+      const poolConfig: PoolOptions = {
         host: dbConn.host,
         port: dbConn.port,
         user: dbConn.username,
@@ -90,10 +107,7 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // 增加连接超时时间
-        connectTimeout: 10000,
-        // 增加重试选项
-        maxRetries: 3
+        connectTimeout: 10000
       };
 
       // 处理SSL配置
@@ -101,7 +115,7 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
         if (extraConfig.ssl === false) {
           // 如果明确设置为false，则禁用SSL
           console.log('禁用SSL连接');
-          // mysql2不需要显式禁用SSL，只需不设置ssl属性即可
+          delete poolConfig.ssl;  // 删除 ssl 属性来禁用 SSL
         } else {
           // 否则使用默认的SSL配置
           poolConfig.ssl = {
@@ -121,7 +135,7 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
       mysqlPools.set(poolKey, pool);
       
       // 添加错误处理
-      pool.on('error', (err) => {
+      pool.on('error', (err: Error) => {
         console.error('连接池错误:', err);
         // 如果连接池出错，从缓存中移除
         mysqlPools.delete(poolKey);
@@ -149,23 +163,26 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
       connection.release();
       console.log('连接已返回到连接池');
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('MySQL查询执行错误:', error);
     // 打印更多错误信息
-    if (error.code) {
-      console.error('错误代码:', error.code);
+    if (error instanceof Error) {
+      if ('code' in error) {
+        console.error('错误代码:', (error as any).code);
+      }
+      if ('errno' in error) {
+        console.error('错误号:', (error as any).errno);
+      }
+      if ('sqlState' in error) {
+        console.error('SQL状态:', (error as any).sqlState);
+      }
+      if ('sqlMessage' in error) {
+        console.error('SQL错误消息:', (error as any).sqlMessage);
+      }
+      
+      throw new Error(`MySQL查询执行错误: ${error.message}`);
     }
-    if (error.errno) {
-      console.error('错误号:', error.errno);
-    }
-    if (error.sqlState) {
-      console.error('SQL状态:', error.sqlState);
-    }
-    if (error.sqlMessage) {
-      console.error('SQL错误消息:', error.sqlMessage);
-    }
-    
-    throw new Error(`MySQL查询执行错误: ${error.message}`);
+    throw new Error('MySQL查询执行错误: 未知错误');
   }
 }
 
@@ -214,7 +231,7 @@ export async function executeApiSqlServerQuery(dbConn: DbConnInfo, sqlQuery: str
   return new Promise((resolve, reject) => {
     try {
       // 配置SQL Server连接
-      const config = {
+      const config: ConnectionConfiguration = {
         server: dbConn.host,
         authentication: {
           type: 'default',
@@ -259,7 +276,7 @@ export async function executeApiSqlServerQuery(dbConn: DbConnInfo, sqlQuery: str
         // 处理行数据
         request.on('row', (columns) => {
           const row: Record<string, any> = {};
-          columns.forEach((column) => {
+          columns.forEach((column: any) => {
             row[column.metadata.colName] = column.value;
           });
           rows.push(row);
@@ -276,9 +293,13 @@ export async function executeApiSqlServerQuery(dbConn: DbConnInfo, sqlQuery: str
       
       // 开始连接
       connection.connect();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('SQL Server查询执行错误:', error);
-      reject(new Error(`SQL Server查询执行错误: ${error.message}`));
+      if (error instanceof Error) {
+        reject(new Error(`SQL Server查询执行错误: ${error.message}`));
+      } else {
+        reject(new Error('SQL Server查询执行错误: 未知错误'));
+      }
     }
   });
 }
@@ -348,9 +369,13 @@ export async function executeApiSqliteQuery(dbConn: DbConnInfo, sqlQuery: string
           });
         }
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('SQLite查询执行错误:', error);
-      reject(new Error(`SQLite查询执行错误: ${error.message}`));
+      if (error instanceof Error) {
+        reject(new Error(`SQLite查询执行错误: ${error.message}`));
+      } else {
+        reject(new Error('SQLite查询执行错误: 未知错误'));
+      }
     }
   });
 }

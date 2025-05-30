@@ -134,70 +134,12 @@
         <div v-else>
           <el-table :data="apiLogs" style="width: 100%">
             <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column label="API信息" min-width="220">
+            <el-table-column prop="route_id" label="路由ID" width="100" />
+            <el-table-column prop="user_id" label="用户ID" width="100" />
+            <el-table-column prop="ip_address" label="IP地址" width="180" />
+            <el-table-column prop="request_data" label="请求数据" min-width="200">
               <template #default="scope">
-                <div class="api-info">
-                  <div class="api-name">{{ scope.row.api_name }}</div>
-                  <div class="api-path">
-                    <el-tag
-                      size="small"
-                      :type="getMethodType(scope.row.api_method)"
-                    >
-                      {{ scope.row.api_method }}
-                    </el-tag>
-                    {{ scope.row.api_path }}
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="来源IP" width="180">
-              <template #default="scope">
-                <div>
-                  {{ scope.row.ip_address }}
-                  <el-tooltip
-                    effect="dark"
-                    placement="top"
-                    v-if="hasClientDetails(scope.row.request_data)"
-                  >
-                    <template #content>
-                      <div>
-                        <p
-                          v-if="
-                            parseClientDetails(scope.row.request_data).userAgent
-                          "
-                        >
-                          <strong>用户代理：</strong
-                          >{{
-                            parseClientDetails(scope.row.request_data).userAgent
-                          }}
-                        </p>
-                        <p
-                          v-if="
-                            parseClientDetails(scope.row.request_data).referer
-                          "
-                        >
-                          <strong>来源页面：</strong
-                          >{{
-                            parseClientDetails(scope.row.request_data).referer
-                          }}
-                        </p>
-                        <p
-                          v-if="
-                            parseClientDetails(scope.row.request_data)
-                              .requestTime
-                          "
-                        >
-                          <strong>请求时间：</strong
-                          >{{
-                            parseClientDetails(scope.row.request_data)
-                              .requestTime
-                          }}
-                        </p>
-                      </div>
-                    </template>
-                    <el-icon class="info-icon"><InfoFilled /></el-icon>
-                  </el-tooltip>
-                </div>
+                <el-button type="text" @click="viewRequestDetails(scope.row.request_data)">查看详细</el-button>
               </template>
             </el-table-column>
             <el-table-column prop="response_status" label="状态码" width="100">
@@ -214,27 +156,7 @@
             </el-table-column>
             <el-table-column prop="created_at" label="调用时间" width="180">
               <template #default="scope">
-                {{
-                  new Date(
-                    new Date(scope.row.created_at).getTime() +
-                      8 * 60 * 60 * 1000
-                  ).toLocaleString()
-                }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="request_data" label="请求数据">
-              <template #default="scope">
-                <div class="request-data">
-                  {{ formatRequestData(scope.row.request_data) }}
-                </div>
-                <el-button
-                  type="primary"
-                  link
-                  size="small"
-                  @click="viewRequestDetails(scope.row.request_data)"
-                >
-                  查看详细
-                </el-button>
+                {{ new Date(scope.row.created_at).toLocaleString() }}
               </template>
             </el-table-column>
           </el-table>
@@ -294,7 +216,7 @@ import {
   Refresh,
   InfoFilled,
 } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import AppFooter from "~/components/AppFooter.vue";
 
 // API路由列表
@@ -620,6 +542,20 @@ const parseClientDetails = (requestData: string) => {
     referer: "",
     requestTime: "",
   };
+};
+
+// 显示请求参数
+const showRequestParams = (log) => {
+  ElMessageBox.alert(JSON.stringify(log.request_params, null, 2), '请求参数', {
+    confirmButtonText: '确定'
+  });
+};
+
+// 显示响应数据
+const showResponseData = (log) => {
+  ElMessageBox.alert(JSON.stringify(log.response_data, null, 2), '响应数据', {
+    confirmButtonText: '确定'
+  });
 };
 </script>
 

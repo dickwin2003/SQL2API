@@ -188,6 +188,19 @@ export default defineEventHandler(async (event) => {
       if (!dbConn) {
         throw new Error(`无法找到数据库连接信息。API路由ID: ${routeResult.id}, 路径: ${path}, 数据库连接名称: ${routeResult.db_conn_name || '未指定'}`); 
       }
+
+      // 确保 connection_string 字段被正确传递
+      if (routeResult.db_conn) {
+        try {
+          const dbConnInfo = JSON.parse(routeResult.db_conn);
+          if (dbConnInfo.connection_string) {
+            dbConn.connection_string = dbConnInfo.connection_string;
+            console.log('从 db_conn 中获取到 connection_string:', dbConnInfo.connection_string);
+          }
+        } catch (parseError) {
+          console.error('解析 db_conn 中的 connection_string 失败:', parseError);
+        }
+      }
       
       // 打印最终使用的数据库连接信息（隐藏密码）
       console.log('最终使用的数据库连接信息:', {

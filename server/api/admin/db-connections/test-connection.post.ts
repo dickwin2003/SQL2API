@@ -1,11 +1,16 @@
-import { defineEventHandler, readBody, createError } from "h3";
-import db from "../../../utils/db";
+import { defineEventHandler, readBody, createError } from 'h3';
+import db from '../../../utils/db';
+import mysql from 'mysql2/promise';
+import { Client } from 'pg';
+import sql from 'mssql';
+import oracledb from 'oracledb';
+import sqlite3 from 'sqlite3';
 
 /**
  * 测试数据库连接
  * 根据连接ID或提供的连接信息测试数据库连接是否可用
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event: any) => {
   try {
     const body = await readBody(event);
     
@@ -33,41 +38,59 @@ export default defineEventHandler(async (event) => {
  * 测试已存在的数据库连接
  */
 async function testExistingConnection(id: string | number) {
-  // 获取连接信息
-  const connection = await db.get(
-    `SELECT 
-      id, name, host, port, username, password, 
-      database_name, db_type, connection_string
-     FROM db_conns 
-     WHERE id = ?`,
-    [id]
-  );
+  try {
+    // 获取连接信息
+    const connection = await db.get(
+      `SELECT 
+        id, name, host, port, username, password, 
+        database_name, db_type, connection_string
+       FROM db_conns 
+       WHERE id = ?`,
+      [id]
+    );
 
-  if (!connection) {
+    if (!connection) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: "数据库连接不存在",
+      });
+    }
+
+    // 测试连接
+    const testResult = await testDatabaseConnection(connection);
+    
+    // 更新连接状态
+    await db.run(
+      `UPDATE db_conns SET 
+        connection_status = ?, 
+        last_connected_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [testResult.success ? 'success' : 'disabled', id]
+    );
+
+    return {
+      success: testResult.success,
+      message: testResult.message,
+      details: testResult.details,
+    };
+  } catch (error: any) {
+    console.error('测试连接失败:', error);
+    // 确保在发生错误时也更新状态为禁用
+    await db.run(
+      `UPDATE db_conns SET 
+        connection_status = 'disabled',
+        last_connected_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [id]
+    );
+    
     throw createError({
-      statusCode: 404,
-      statusMessage: "数据库连接不存在",
+      statusCode: 500,
+      statusMessage: `测试连接失败: ${error.message || "未知错误"}`,
     });
   }
-
-  // 测试连接
-  const testResult = await testDatabaseConnection(connection);
-  
-  // 更新连接状态
-  await db.run(
-    `UPDATE db_conns SET 
-      connection_status = ?, 
-      last_connected_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [testResult.success ? 'success' : 'failed', id]
-  );
-
-  return {
-    success: testResult.success,
-    message: testResult.message,
-    details: testResult.details,
-  };
 }
 
 /**
@@ -138,6 +161,7 @@ async function testDatabaseConnection(connection: any) {
         };
     }
   } catch (error: any) {
+    console.error('数据库连接测试失败:', error);
     return {
       success: false,
       message: `连接测试失败: ${error.message}`,
@@ -151,28 +175,38 @@ async function testDatabaseConnection(connection: any) {
  */
 async function testMySQLConnection(connection: any) {
   try {
-    // 这里只是模拟连接测试，实际应用中应该使用mysql2或其他库进行实际连接
-    // const mysql = require('mysql2/promise');
-    // const conn = await mysql.createConnection({
-    //   host: connection.host,
-    //   port: connection.port,
-    //   user: connection.username,
-    //   password: connection.password,
-    //   database: connection.database_name
-    // });
-    // await conn.ping();
-    // await conn.end();
-    
-    // 模拟连接成功
+    const conn = await mysql.createConnection({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name,
+      connectTimeout: 5000, // 5秒连接超时
+      acquireTimeout: 5000, // 5秒获取连接超时
+      timeout: 5000 // 5秒查询超时
+    });
+    await conn.ping();
+    await conn.end();
     return {
       success: true,
       message: `成功连接到MySQL数据库 ${connection.database_name}@${connection.host}:${connection.port}`,
       details: `连接信息:\n主机: ${connection.host}\n端口: ${connection.port}\n用户名: ${connection.username}\n数据库: ${connection.database_name}`
     };
   } catch (error: any) {
+    console.error('MySQL连接失败:', error);
+    let errorMessage = '连接失败';
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = '连接超时，请检查数据库服务是否启动或网络是否正常';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = '连接被拒绝，请检查数据库服务是否启动或端口是否正确';
+    } else if (error.code === 'ER_ACCESS_DENIED_ERROR') {
+      errorMessage = '访问被拒绝，请检查用户名和密码是否正确';
+    } else if (error.code === 'ER_BAD_DB_ERROR') {
+      errorMessage = '数据库不存在，请检查数据库名称是否正确';
+    }
     return {
       success: false,
-      message: `MySQL连接失败: ${error.message}`,
+      message: `MySQL${errorMessage}: ${error.message}`,
       details: error.stack
     };
   }
@@ -183,16 +217,36 @@ async function testMySQLConnection(connection: any) {
  */
 async function testPostgreSQLConnection(connection: any) {
   try {
-    // 模拟连接成功
+    const client = new Client({
+      host: connection.host,
+      port: connection.port,
+      user: connection.username,
+      password: connection.password,
+      database: connection.database_name,
+      connectionTimeoutMillis: 5000 // 5秒连接超时
+    });
+    await client.connect();
+    await client.end();
     return {
       success: true,
       message: `成功连接到PostgreSQL数据库 ${connection.database_name}@${connection.host}:${connection.port}`,
       details: `连接信息:\n主机: ${connection.host}\n端口: ${connection.port}\n用户名: ${connection.username}\n数据库: ${connection.database_name}`
     };
   } catch (error: any) {
+    console.error('PostgreSQL连接失败:', error);
+    let errorMessage = '连接失败';
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = '连接超时，请检查数据库服务是否启动或网络是否正常';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = '连接被拒绝，请检查数据库服务是否启动或端口是否正确';
+    } else if (error.code === '28P01') {
+      errorMessage = '访问被拒绝，请检查用户名和密码是否正确';
+    } else if (error.code === '3D000') {
+      errorMessage = '数据库不存在，请检查数据库名称是否正确';
+    }
     return {
       success: false,
-      message: `PostgreSQL连接失败: ${error.message}`,
+      message: `PostgreSQL${errorMessage}: ${error.message}`,
       details: error.stack
     };
   }
@@ -203,16 +257,40 @@ async function testPostgreSQLConnection(connection: any) {
  */
 async function testSQLServerConnection(connection: any) {
   try {
-    // 模拟连接成功
+    const config = {
+      user: connection.username,
+      password: connection.password,
+      server: connection.host,
+      port: connection.port,
+      database: connection.database_name,
+      options: {
+        encrypt: true,
+        connectTimeout: 5000, // 5秒连接超时
+        requestTimeout: 5000 // 5秒请求超时
+      }
+    };
+    await sql.connect(config);
+    await sql.close();
     return {
       success: true,
       message: `成功连接到SQL Server数据库 ${connection.database_name}@${connection.host}:${connection.port}`,
       details: `连接信息:\n主机: ${connection.host}\n端口: ${connection.port}\n用户名: ${connection.username}\n数据库: ${connection.database_name}`
     };
   } catch (error: any) {
+    console.error('SQL Server连接失败:', error);
+    let errorMessage = '连接失败';
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = '连接超时，请检查数据库服务是否启动或网络是否正常';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = '连接被拒绝，请检查数据库服务是否启动或端口是否正确';
+    } else if (error.code === 'ELOGIN') {
+      errorMessage = '访问被拒绝，请检查用户名和密码是否正确';
+    } else if (error.code === 'EDB') {
+      errorMessage = '数据库不存在，请检查数据库名称是否正确';
+    }
     return {
       success: false,
-      message: `SQL Server连接失败: ${error.message}`,
+      message: `SQL Server${errorMessage}: ${error.message}`,
       details: error.stack
     };
   }
@@ -223,16 +301,33 @@ async function testSQLServerConnection(connection: any) {
  */
 async function testOracleConnection(connection: any) {
   try {
-    // 模拟连接成功
+    const conn = await oracledb.getConnection({
+      user: connection.username,
+      password: connection.password,
+      connectString: `${connection.host}:${connection.port}/${connection.database_name}`,
+      connectTimeout: 5000 // 5秒连接超时
+    });
+    await conn.close();
     return {
       success: true,
       message: `成功连接到Oracle数据库 ${connection.database_name}@${connection.host}:${connection.port}`,
       details: `连接信息:\n主机: ${connection.host}\n端口: ${connection.port}\n用户名: ${connection.username}\n服务名: ${connection.database_name}`
     };
   } catch (error: any) {
+    console.error('Oracle连接失败:', error);
+    let errorMessage = '连接失败';
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = '连接超时，请检查数据库服务是否启动或网络是否正常';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = '连接被拒绝，请检查数据库服务是否启动或端口是否正确';
+    } else if (error.code === 'ORA-01017') {
+      errorMessage = '访问被拒绝，请检查用户名和密码是否正确';
+    } else if (error.code === 'ORA-12514') {
+      errorMessage = '服务名不存在，请检查服务名是否正确';
+    }
     return {
       success: false,
-      message: `Oracle连接失败: ${error.message}`,
+      message: `Oracle${errorMessage}: ${error.message}`,
       details: error.stack
     };
   }
@@ -243,16 +338,30 @@ async function testOracleConnection(connection: any) {
  */
 async function testSQLiteConnection(connection: any) {
   try {
-    // 模拟连接成功
+    const db = new sqlite3.Database(connection.database_name);
+    await new Promise<void>((resolve, reject) => {
+      db.run('SELECT 1', (err: Error | null) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    db.close();
     return {
       success: true,
       message: `成功连接到SQLite数据库 ${connection.database_name}`,
       details: `连接信息:\n数据库文件: ${connection.database_name}`
     };
   } catch (error: any) {
+    console.error('SQLite连接失败:', error);
+    let errorMessage = '连接失败';
+    if (error.code === 'SQLITE_CANTOPEN') {
+      errorMessage = '无法打开数据库文件，请检查文件路径和权限';
+    } else if (error.code === 'SQLITE_READONLY') {
+      errorMessage = '数据库文件是只读的，请检查文件权限';
+    }
     return {
       success: false,
-      message: `SQLite连接失败: ${error.message}`,
+      message: `SQLite${errorMessage}: ${error.message}`,
       details: error.stack
     };
   }

@@ -5,6 +5,7 @@
       class="sidebar-menu"
       :router="true"
       :collapse="isCollapse"
+      :default-openeds="['/db', '/api']"
     >
       <div class="logo-container">
         <h3 v-if="!isCollapse">SQL2API</h3>
@@ -23,7 +24,7 @@
         </template>
         <el-menu-item index="/db-connections">连接管理</el-menu-item>
         <el-menu-item index="/table-management">表管理</el-menu-item>
-        <el-menu-item index="/table-list">自定义表</el-menu-item>
+        <!--<el-menu-item index="/table-list">自定义表</el-menu-item>-->
       </el-sub-menu>
       
       <el-sub-menu index="/api">

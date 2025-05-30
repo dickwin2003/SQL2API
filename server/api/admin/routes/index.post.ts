@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
       description,
       path,
       method,
-      connectionId, // 添加数据库连接ID
+      connectionId,
       sqlQuery,
       params,
       isPublic,
@@ -23,13 +23,13 @@ export default defineEventHandler(async (event) => {
     if (!name || !path || !method || !connectionId || !sqlQuery) {
       throw createError({
         statusCode: 400,
-        statusMessage: "缺少必填字段",
+        statusMessage: "缺少必填字段: name, path, method, connectionId, sqlQuery",
       });
     }
 
     // 验证数据库连接是否存在
     const connection = await db.get(
-      "SELECT id, name FROM db_conns WHERE id = ? AND is_active = 1",
+      "SELECT id, name, host, port, username, database_name, db_type, connection_string FROM db_conns WHERE id = ? AND is_active = 1",
       [connectionId]
     );
 
@@ -40,28 +40,38 @@ export default defineEventHandler(async (event) => {
       });
     }
     
-    // 获取数据库连接名称
+    // 获取数据库连接名称和连接信息
     const dbConnName = connection.name;
+    const dbConn = {
+      host: connection.host,
+      port: connection.port,
+      username: connection.username,
+      database_name: connection.database_name,
+      db_type: connection.db_type,
+      connection_string: connection.connection_string
+    };
     console.log('数据库连接名称:', dbConnName);
+    console.log('数据库连接信息:', dbConn);
 
     // 插入API路由
     const result = await db.run(
       `INSERT INTO api_routes (
-        name, description, path, method, connection_id, db_conn_name,
+        name, description, path, method, connection_id, db_conn_name, db_conn,
         sql_query, params, is_public, require_auth,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         name,
-        description,
+        description || "",
         path,
         method,
         connectionId,
-        dbConnName,  // 添加数据库连接名称
+        dbConnName,
+        JSON.stringify(dbConn),
         sqlQuery,
         params ? JSON.stringify(params) : null,
         isPublic ? 1 : 0,
-        requireAuth ? 1 : 0,
+        requireAuth ? 1 : 0
       ]
     );
 

@@ -30,16 +30,33 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    // 删除连接
-    await db.run("DELETE FROM db_conns WHERE id = ?", [id]);
+    // 开始事务
+    await db.run("BEGIN TRANSACTION");
 
-    // 删除相关的连接日志
-    await db.run("DELETE FROM db_connection_logs WHERE connection_id = ?", [id]);
-    
-    return {
-      success: true,
-      message: "数据库连接已删除",
-    };
+    try {
+      // 删除连接
+      await db.run("DELETE FROM db_conns WHERE id = ?", [id]);
+
+      // 尝试删除相关的连接日志，如果表不存在也不会报错
+      try {
+        await db.run("DELETE FROM db_connection_logs WHERE connection_id = ?", [id]);
+      } catch (logError) {
+        // 如果日志表不存在，忽略错误
+        console.warn("删除连接日志时出错（可能是表不存在）:", logError);
+      }
+
+      // 提交事务
+      await db.run("COMMIT");
+      
+      return {
+        success: true,
+        message: "数据库连接已删除",
+      };
+    } catch (error) {
+      // 如果出错，回滚事务
+      await db.run("ROLLBACK");
+      throw error;
+    }
   } catch (error: any) {
     if (error.statusCode) {
       throw error;

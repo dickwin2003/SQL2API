@@ -1,7 +1,7 @@
 <template>
   <a
     v-if="showGithubCorner"
-    href="https://github.com/dickwin2003/SQL2API"
+    href="https://github.com/123xiao/Cloudflare-SQL-to-API"
     class="github-corner"
     aria-label="View source on GitHub"
     target="_blank"

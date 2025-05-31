@@ -13,26 +13,52 @@
 
 ## 系统截图
 
-### 登录界面
-![登录](./images/登录页面.png)
+登录界面
 
-### 首页
-![首页](./images/首页.png)
 
-### 创建API
-![创建API页面](./images/创建API页面.png)
+![登录](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/1_login.png)
 
-### 表管理
-![表管理页面](./images/表管理.png)
 
-### API列表
-![API列表页面](./images/API列表页面.png)
 
-### API测试
-![API测试工具页面](./images/API测试工具页面.png)
+首页
 
-### 调用日志
-![API调用日志页面](./images/API调用日志页面.png)
+
+![首页](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/2_main.png)
+
+
+
+创建 API
+
+
+![创建 API 页面](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/3_creat_api.png)
+
+
+
+表管理
+
+
+![表管理页面](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/4_tabellist.png)
+
+
+
+API 列表
+
+
+![API 列表页面](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/5_apilist.png)
+
+
+
+API 测试
+
+
+![API 测试工具页面](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/6_apitest.png)
+
+
+
+调用日志
+
+
+![API 调用日志页面](https://pub-18e1a8a1f45c4376b321a8f9f29248b8.r2.dev/sql2api/7_apilog.png)
 
 ## 快速开始
 

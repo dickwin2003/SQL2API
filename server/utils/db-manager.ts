@@ -1,11 +1,7 @@
 import sqlite3 from 'sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import path from 'path';
 import fs from 'fs';
 import { promisify } from 'util';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Enable verbose mode for debugging
 sqlite3.verbose();
@@ -19,29 +15,33 @@ export async function initDatabase(): Promise<sqlite3.Database> {
 
     return new Promise((resolve, reject) => {
         try {
-            const dbPath = join(process.cwd(), 'data', 'meta.db');
+            // Set up database directory using platform-specific paths
+            const rootDir = process.cwd();
+            const dataDir = path.join(rootDir, 'data');
             
-            // Ensure the data directory exists
-            const dataDir = dirname(dbPath);
+            // Ensure data directory exists
             if (!fs.existsSync(dataDir)) {
                 fs.mkdirSync(dataDir, { recursive: true });
             }
+
+            const dbPath = path.join(dataDir, 'meta.db');
+            console.log('Initializing database at:', dbPath);
             
-            // Create database connection
-            db = new sqlite3.Database(dbPath, (err) => {
+            // Create database connection with explicit flags
+            db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
                 if (err) {
-                    console.error('Could not connect to database', err);
+                    console.error('Could not connect to database:', err);
                     reject(err);
                     return;
                 }
                 
                 console.log('Connected to SQLite database');
                 
-                // Enable foreign keys
+                // Enable foreign keys and WAL mode
                 db!.run('PRAGMA foreign_keys = ON');
                 db!.run('PRAGMA journal_mode = WAL', function(err) {
                     if (err) {
-                        console.warn('Could not set journal mode', err);
+                        console.warn('Could not set journal mode:', err);
                     }
                     
                     // Create necessary tables

@@ -2,12 +2,31 @@
 export default defineNuxtConfig({
   devtools: { enabled: true },
 
-  // 服务器配置
-  server: {
-    port: 3001
+  ssr: false,  nitro: {
+    preset: "node-server",
+    experimental: {
+      asyncContext: true
+    },
+    externals: {
+      external: ['sqlite3', 'mysql2', 'pg', 'tedious']
+    },
+    devServer: {
+      host: '0.0.0.0',
+      port: 3001
+    },
+    moduleSideEffects: ['sqlite3'],
+    output: {
+      serverDir: '.output/server'
+    }
   },
 
-  // 运行时配置，用于访问环境变量
+  app: {
+    baseURL: '/',
+    head: {
+      title: "SQL to API - SQLite"
+    }
+  },
+
   runtimeConfig: {
     // 私有配置（仅在服务端可用）
     adminUsername: process.env.ADMIN_USERNAME,
@@ -20,25 +39,17 @@ export default defineNuxtConfig({
     },
   },
 
-  nitro: {
-    preset: "node",
-    compatibilityDate: '2025-05-27',
-    externals: {
-      inline: [],
-      external: ['sqlite3', 'mysql2', 'pg', 'tedious', 'tarn', 'debug', 'bl', 'iconv-lite', 'sprintf-js']
-    },
-    devServer: {
-      port: 3001
-    }
-  },
-
-  // 设置vite配置
-  vite: {
+  // 设置vite配置  vite: {
     build: {
       sourcemap: false,
     },
     optimizeDeps: {
       exclude: ['sqlite3']
+    },
+    server: {
+      fs: {
+        strict: true
+      }
     }
   },
 
@@ -85,5 +96,9 @@ export default defineNuxtConfig({
 
   plugins: [
     { src: '~/plugins/element-zindex.client.ts', mode: 'client' }
-  ]
+  ],
+
+  experimental: {
+    payloadExtraction: false
+  }
 });

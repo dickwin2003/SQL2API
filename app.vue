@@ -1,25 +1,28 @@
 <template>
   <div class="app-root">
-    <AppHeader v-if="!isLoginPage" />
-    <div class="main-container" v-if="!isLoginPage">
-      <AppSidebar class="sidebar" />
-      <div class="content-area">
-        <NuxtPage />
+    <ClientOnly>
+      <AppHeader v-if="!isLoginPage" />
+      <div class="main-container" v-if="!isLoginPage">
+        <AppSidebar class="sidebar" />
+        <div class="content-area">
+          <NuxtPage />
+        </div>
       </div>
-    </div>
-    <NuxtPage v-else />
-    <GithubCorner />
+      <NuxtPage v-else />
+      <GithubCorner />
+    </ClientOnly>
   </div>
 </template>
 
 <script setup lang="ts">
-// 全局引入Element Plus样式
-import "element-plus/dist/index.css";
-import GithubCorner from "~/components/GithubCorner.vue";
-import AppHeader from "~/components/AppHeader.vue";
-import AppSidebar from "~/components/AppSidebar.vue";
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import { useRoute } from "vue-router";
+import "element-plus/dist/index.css";
+
+// Define components with proper type checking
+const GithubCorner = defineAsyncComponent(() => import("~/components/GithubCorner.vue"));
+const AppHeader = defineAsyncComponent(() => import("~/components/AppHeader.vue"));
+const AppSidebar = defineAsyncComponent(() => import("~/components/AppSidebar.vue"));
 
 const route = useRoute();
 const isLoginPage = computed(() => route.path === "/login");

@@ -81,8 +81,11 @@ export default {
 pnpm dev
 
 # 生产模式
-pnpm build
-pnpm start
+cd /opt/SQL2API
+yarn install
+yarn build
+
+node .output/server/index.mjs
 ```
 
 ## 使用指南

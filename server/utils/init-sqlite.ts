@@ -1,23 +1,22 @@
 import sqlite3 from 'sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 /**
  * 初始化 SQLite 数据库
  */
 export function initSqliteDb(): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
-      // 确保 data 目录存在
-      const dataDir = path.join(process.cwd(), 'data');
+      // Use rootDir from process.cwd()
+      const rootDir = process.cwd();
+      
+      // Ensure 'data' directory exists using platform-specific path
+      const dataDir = path.join(rootDir, 'data');
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
 
+      // Use platform-specific path joining for database file
       const dbPath = path.join(dataDir, 'meta.db');
 
       // 初始化数据库

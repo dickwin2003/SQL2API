@@ -46,7 +46,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/SQL2API.git
+git clone https://github.com/dickwin2003/SQL2API.git
 cd SQL2API
 
 # 安装依赖
@@ -150,7 +150,7 @@ SQL2API/
 
 - **前端**: Vue 3, Nuxt 3, Element Plus
 - **后端**: Node.js, SQLite(元数据存储)
-- **数据库驱动**: mysql2, oracledb
+- **数据库驱动**: mysql2, postgres
 - **构建工具**: Vite
 
 ## 注意事项

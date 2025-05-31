@@ -78,6 +78,7 @@ cd SQL2API
 # 安装依赖
 pnpm install
 ```
+默认用户密码:admin/admin123
 
 ### 配置数据库连接
 

@@ -18,8 +18,8 @@ export interface DbConnection {
 
 // 从数据库中读取的连接1
 const db1Connection: DbConnection = {
-  id: 9,
-  name: 'mariadb10',
+  id: 10,
+  name: '192.168.0.200',
   host: '192.168.0.200',
   port: 3306,
   username: 'root',

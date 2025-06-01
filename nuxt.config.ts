@@ -2,7 +2,9 @@
 export default defineNuxtConfig({
   devtools: { enabled: true },
 
-  ssr: false,  nitro: {
+  ssr: false,
+  
+  nitro: {
     preset: "node-server",
     experimental: {
       asyncContext: true
@@ -20,26 +22,7 @@ export default defineNuxtConfig({
     }
   },
 
-  app: {
-    baseURL: '/',
-    head: {
-      title: "SQL to API - SQLite"
-    }
-  },
-
-  runtimeConfig: {
-    // 私有配置（仅在服务端可用）
-    adminUsername: process.env.ADMIN_USERNAME,
-    adminPassword: process.env.ADMIN_PASSWORD,
-    turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
-    // 公共配置（客户端可访问）
-    public: {
-      // 可在此添加公共环境变量
-      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY,
-    },
-  },
-
-  // 设置vite配置  vite: {
+  vite: {
     build: {
       sourcemap: false,
     },
@@ -53,15 +36,14 @@ export default defineNuxtConfig({
     }
   },
 
-  // 添加CSP头以允许CDN加载
   app: {
+    baseURL: '/',
     head: {
       title: "SQL to API - SQLite",
       meta: [
         {
           "http-equiv": "Content-Security-Policy",
-          content:
-            "default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline';",
+          content: "default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline';",
         },
         {
           name: "description",
@@ -72,25 +54,23 @@ export default defineNuxtConfig({
       ],
       link: [
         { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
-        {
-          rel: "icon",
-          type: "image/png",
-          sizes: "32x32",
-          href: "/favicon-32x32.png",
-        },
-        {
-          rel: "icon",
-          type: "image/png",
-          sizes: "16x16",
-          href: "/favicon-16x16.png",
-        },
-        {
-          rel: "apple-touch-icon",
-          sizes: "180x180",
-          href: "/apple-touch-icon.png",
-        },
+        { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" },
+        { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png" },
+        { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
         { rel: "mask-icon", href: "/safari-pinned-tab.svg", color: "#409EFF" },
       ],
+    },
+  },
+
+  runtimeConfig: {
+    // 私有配置（仅在服务端可用）
+    adminUsername: process.env.ADMIN_USERNAME,
+    adminPassword: process.env.ADMIN_PASSWORD,
+    turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+    // 公共配置（客户端可访问）
+    public: {
+      // 可在此添加公共环境变量
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY,
     },
   },
 

@@ -188,3 +188,53 @@ SQL2API/
 1. 生产环境请确保添加适当的认证机制
 2. 敏感数据库信息请妥善保管
 3. 复杂查询建议添加适当的索引优化性能
+
+### Docker 部署
+
+#### 构建镜像
+
+```bash
+# 构建Docker镜像
+docker build -t sql2api .
+```
+
+#### 运行容器
+
+```bash
+# 创建数据卷用于持久化数据
+docker volume create sql2api-data
+
+# 运行容器
+docker run -d \
+  --name sql2api \
+  -p 3000:3000 \
+  -v sql2api-data:/app/data \
+  sql2api
+```
+
+访问 http://localhost:3000 即可使用系统。
+
+#### Docker Compose 部署
+
+创建 docker-compose.yml 文件：
+
+```yaml
+version: '3'
+services:
+  sql2api:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - sql2api-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  sql2api-data:
+```
+
+运行：
+
+```bash
+docker-compose up -d
+```

@@ -2,14 +2,29 @@ import { defineEventHandler, createError } from "h3";
 import db from "../../utils/db";
 
 /**
- * 获取API调用日志的路由统计信息
- * 返回每个路由的调用次数、平均执行时间等统计数据
+ * 获取API调用日志的路由列表
+ * 返回所有API路由信息，用于日志筛选
  */
 export default defineEventHandler(async (event) => {
   // 安全检查 - 这里应添加实际的认证检查
   // TODO: 实现管理员认证
 
   try {
+    // 查询所有API路由
+    const routesQuery = `
+      SELECT 
+        id,
+        name,
+        path,
+        method,
+        created_at,
+        updated_at
+      FROM api_routes
+      ORDER BY name ASC
+    `;
+
+    const routes = await db.all(routesQuery);
+
     // 查询每个路由的调用统计
     const routeStatsQuery = `
       SELECT 
@@ -59,6 +74,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
+      routes: routes,  // 添加routes字段，用于前端下拉选择框
       routeStats: routeStats,
       overallStats: overallStats,
       trends: trends

@@ -37,12 +37,21 @@ ENV PORT=3000
 ENV NITRO_HOST=0.0.0.0
 ENV NITRO_PORT=3000
 ENV NODE_ENV=production
+ENV DB_CONNECTION_TIMEOUT=5000
+ENV DB_CONNECTION_RETRY=3
+ENV DB_CONNECTION_RETRY_DELAY=2000
 
 # 暴露端口
 EXPOSE 3000
 
+# 创建启动脚本
+RUN echo '#!/bin/sh\n\
+echo "Starting SQL2API with connection timeout settings..."\n\
+node --unhandled-rejections=strict .output/server/index.mjs\n' > /app/start.sh && \
+    chmod +x /app/start.sh
+
 # 启动应用 - 直接使用挂载的数据库文件，不进行初始化
-CMD ["node", ".output/server/index.mjs"]
+CMD ["/app/start.sh"]
 
 # 注意：需要在运行容器时挂载SQLite数据库文件
 # 运行命令示例：docker run -d -p 3000:3000 -v D:/home/dockerdata/meta/meta.db:/app/data/sql2api.db --name sql2api sql2api:latest

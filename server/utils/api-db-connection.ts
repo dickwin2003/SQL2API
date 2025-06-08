@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import { getDbConnFromEnv } from './db-connection';
 import path from 'path';
 import fs from 'fs';
+import { withRetry } from './connection-retry';
 // 如果需要SSH隧道功能，请安装并导入这些包
 // import { Client } from 'ssh2';
 // import net from 'net';
@@ -144,9 +145,14 @@ export async function executeApiMySqlQuery(dbConn: DbConnInfo, sqlQuery: string,
       console.log('使用现有的MySQL连接池:', poolKey);
     }
     
-    // 从连接池获取连接
+    // 从连接池获取连接，使用重试逻辑
     console.log('从连接池获取连接...');
-    const connection = await pool.getConnection();
+    const connection = await withRetry(
+      async () => await pool.getConnection(),
+      3, // 重试次数
+      2000, // 重试延迟
+      5000 // 连接超时
+    );
     console.log('MySQL连接成功！');
     
     try {
@@ -204,8 +210,13 @@ export async function executeApiPostgreSqlQuery(dbConn: DbConnInfo, sqlQuery: st
       database: dbConn.database_name
     });
     
-    // 连接数据库
-    await client.connect();
+    // 连接数据库，使用重试逻辑
+    await withRetry(
+      async () => await client.connect(),
+      3, // 重试次数
+      2000, // 重试延迟
+      5000 // 连接超时
+    );
     
     // 执行查询
     const result = await client.query(sqlQuery, params);
@@ -312,70 +323,92 @@ export async function executeApiSqlServerQuery(dbConn: DbConnInfo, sqlQuery: str
  * @returns 查询结果
  */
 export async function executeApiSqliteQuery(dbConn: DbConnInfo, sqlQuery: string, params: any[] = []) {
-  return new Promise((resolve, reject) => {
-    try {
-      // 创建SQLite数据库连接
-      const dbPath = dbConn.connection_string || path.join(process.cwd(), 'data', `${dbConn.database_name}.db`);
-      
-      // 确保目录存在
-      const dirPath = path.dirname(dbPath);
-      if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-      }
-      
-      // 创建数据库连接
-      const db = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-          reject(new Error(`SQLite连接错误: ${err.message}`));
-          return;
-        }
-        
-        // 启用外键约束
-        db.run('PRAGMA foreign_keys = ON');
-        
-        // 判断是否为查询操作
-        const isSelect = sqlQuery.trim().toLowerCase().startsWith('select');
-        
-        if (isSelect) {
-          // 查询操作
-          db.all(sqlQuery, params, (err, rows) => {
-            if (err) {
-              reject(new Error(`SQLite查询错误: ${err.message}`));
-              return;
-            }
-            
-            // 关闭数据库连接
-            db.close();
-            
-            resolve({ rows });
-          });
-        } else {
-          // 更新操作
-          db.run(sqlQuery, params, function(err) {
-            if (err) {
-              reject(new Error(`SQLite更新错误: ${err.message}`));
-              return;
-            }
-            
-            // 关闭数据库连接
-            db.close();
-            
-            resolve({ 
-              rows: [{ 
-                changes: this.changes, 
-                lastInsertRowid: this.lastID 
-              }] 
-            });
-          });
-        }
-      });
-    } catch (error: unknown) {
-      console.error('SQLite查询执行错误:', error);
-      if (error instanceof Error) {
-        reject(new Error(`SQLite查询执行错误: ${error.message}`));
-      } else {
-        reject(new Error('SQLite查询执行错误: 未知错误'));
-      }
+  try {
+    console.log('尝试连接SQLite数据库...');
+    
+    // 创建SQLite数据库连接
+    const dbPath = dbConn.connection_string || path.join(process.cwd(), 'data', `${dbConn.database_name}.db`);
+    console.log(`SQLite数据库路径: ${dbPath}`);
+    
+    // 确保目录存在
+    const dirPath = path.dirname(dbPath);
+    if (!fs.existsSync(dirPath)) {
+      console.log(`创建目录: ${dirPath}`);
+      fs.mkdirSync(dirPath, { recursive: true });
     }
-  });
+    
+    // 封装SQLite操作为Promise
+    const executeSqliteQuery = () => {
+      return new Promise((resolve, reject) => {
+        // 创建数据库连接
+        const db = new sqlite3.Database(dbPath, (err) => {
+          if (err) {
+            console.error(`SQLite连接错误: ${err.message}`);
+            reject(new Error(`SQLite连接错误: ${err.message}`));
+            return;
+          }
+          
+          console.log('SQLite连接成功');
+          
+          // 启用外键约束
+          db.run('PRAGMA foreign_keys = ON');
+          
+          // 判断是否为查询操作
+          const isSelect = sqlQuery.trim().toLowerCase().startsWith('select');
+          
+          if (isSelect) {
+            // 查询操作
+            console.log(`执行SQLite查询: ${sqlQuery}`);
+            db.all(sqlQuery, params, (err, rows) => {
+              if (err) {
+                console.error(`SQLite查询错误: ${err.message}`);
+                reject(new Error(`SQLite查询错误: ${err.message}`));
+                return;
+              }
+              
+              // 关闭数据库连接
+              db.close();
+              console.log(`SQLite查询成功，返回${rows.length}行数据`);
+              resolve({ rows });
+            });
+          } else {
+            // 更新操作
+            console.log(`执行SQLite更新: ${sqlQuery}`);
+            db.run(sqlQuery, params, function(err) {
+              if (err) {
+                console.error(`SQLite更新错误: ${err.message}`);
+                reject(new Error(`SQLite更新错误: ${err.message}`));
+                return;
+              }
+              
+              // 关闭数据库连接
+              db.close();
+              console.log(`SQLite更新成功，影响${this.changes}行`);
+              resolve({ 
+                rows: [{ 
+                  changes: this.changes, 
+                  lastInsertRowid: this.lastID 
+                }] 
+              });
+            });
+          }
+        });
+      });
+    };
+    
+    // 使用重试逻辑执行查询
+    return await withRetry(
+      async () => await executeSqliteQuery(),
+      3, // 重试次数
+      2000, // 重试延迟
+      5000 // 连接超时
+    );
+  } catch (error: unknown) {
+    console.error('SQLite查询执行错误:', error);
+    if (error instanceof Error) {
+      throw new Error(`SQLite查询执行错误: ${error.message}`);
+    } else {
+      throw new Error('SQLite查询执行错误: 未知错误');
+    }
+  }
 }
